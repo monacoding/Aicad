@@ -65,8 +65,10 @@ cp .env.example .env          # ANTHROPIC_API_KEY 입력
 npm run dev                   # 프론트(:5173) + API(:8787) 동시 기동
 ```
 
-자연어 기능을 쓰려면 `.env`에 `ANTHROPIC_API_KEY`가 필요합니다. 키가 없어도 그리기
-도구·명령행·DXF 등 모든 CAD 기능은 정상 동작합니다.
+자연어 기능은 키가 있으면 Claude가 처리하고, **키가 없으면 내장 로컬 해석기**(오프라인
+폴백, `src/cad/nlLocal.ts`)가 기본 작도/편집/P&ID 요청을 처리합니다. 그리기 도구·명령행·
+DXF 등 나머지 CAD 기능은 키와 무관하게 동작합니다. 자연어 테스트: `npx tsx scripts/nltest.mts`
+(110개 프롬프트, 결과는 `docs/NL_TEST_REPORT.md`).
 
 빌드:
 

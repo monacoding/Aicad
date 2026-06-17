@@ -4,6 +4,7 @@ import { CadEngine } from "./engine";
 import { Op } from "./ops";
 import { Entity } from "./entities";
 import { boundsValid, Vec2 } from "./geometry";
+import { interpretLocal } from "./nlLocal";
 
 export interface NlResponse {
   ops: Op[];
@@ -52,19 +53,29 @@ function fmt(p: Vec2): string {
 const round = (n: number) => Math.round(n * 100) / 100;
 
 export async function runNaturalLanguage(engine: CadEngine, prompt: string): Promise<NlResponse> {
-  const res = await fetch("/api/nl", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt, context: buildContext(engine) }),
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    return { ops: [], error: `서버 오류 (${res.status}): ${text.slice(0, 200)}` };
+  // Try the Claude-backed server first; fall back to the local interpreter when
+  // the server is unreachable, unconfigured (no API key), or returns nothing.
+  try {
+    const res = await fetch("/api/nl", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt, context: buildContext(engine) }),
+    });
+    if (res.ok) {
+      const data = (await res.json()) as NlResponse;
+      const ops = Array.isArray(data.ops) ? data.ops.filter(isValidOp) : [];
+      if (ops.length) return { ops, note: data.note };
+      // server reachable but no usable ops (e.g. missing key) -> local fallback
+      const local = interpretLocal(prompt);
+      if (local.ops.length) return { ops: local.ops.filter(isValidOp), note: `${local.note} (오프라인)` };
+      return { ops: [], error: data.error ?? "이해하지 못했습니다. 더 구체적으로 입력해 보세요." };
+    }
+  } catch {
+    // network error — fall through to local
   }
-  const data = (await res.json()) as NlResponse;
-  if (data.error) return { ops: [], error: data.error };
-  const ops = Array.isArray(data.ops) ? data.ops.filter(isValidOp) : [];
-  return { ops, note: data.note };
+  const local = interpretLocal(prompt);
+  if (local.ops.length) return { ops: local.ops.filter(isValidOp), note: `${local.note} (오프라인)` };
+  return { ops: [], error: "서버에 연결할 수 없고 로컬 해석도 실패했습니다." };
 }
 
 const OP_NAMES = new Set([
