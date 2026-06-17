@@ -14,7 +14,7 @@ import {
   rotateEntity,
   scaleEntity,
 } from "./entities";
-import { Vec2, dist, dot, sub, angle as angleBetween, leftNormal, pointInBounds, boundsValid } from "./geometry";
+import { Vec2, dist, dot, sub, angle as angleBetween, leftNormal, pointInBounds, boundsValid, deg, rad } from "./geometry";
 import {
   mirrorEntity,
   offsetEntity,
@@ -64,6 +64,8 @@ interface Tool {
   finish?(): void;
   /** Escape pressed */
   cancel(): void;
+  /** current reference point (for ortho/polar tracking + dynamic input) */
+  anchor?(): Vec2 | null;
 }
 
 export interface EngineUiState {
@@ -73,6 +75,11 @@ export interface EngineUiState {
   selectionCount: number;
   snapOn: boolean;
   gridOn: boolean;
+  orthoOn: boolean;
+  polarOn: boolean;
+  polarStep: number;
+  /** live distance/angle from the active tool's anchor (dynamic input) */
+  dyn: { dist: number; angle: number } | null;
   scale: number;
   log: string[];
 }
@@ -92,9 +99,15 @@ export class CadEngine {
 
   snapSettings: SnapSettings = { enabled: true, grid: false, gridStep: 1 };
   showGrid = true;
+  // drafting aids (AutoCAD-style): ORTHO (F8), POLAR tracking (F10)
+  orthoOn = false;
+  polarOn = false;
+  polarStep = 45;
+  dyn: { dist: number; angle: number } | null = null;
 
   private tool: Tool;
   private toolName: ToolName = "select";
+  private lastDrawTool: ToolName | null = null;
   private lastCreated: string[] = [];
   log: string[] = ["AiCAD 준비 완료. 도구를 선택하거나 명령을 입력하세요."];
 
@@ -138,6 +151,10 @@ export class CadEngine {
       selectionCount: this.selection.size,
       snapOn: this.snapSettings.enabled,
       gridOn: this.showGrid,
+      orthoOn: this.orthoOn,
+      polarOn: this.polarOn,
+      polarStep: this.polarStep,
+      dyn: this.dyn,
       scale: this.vp.scale,
       log: this.log.slice(-60),
     };
@@ -180,10 +197,17 @@ export class CadEngine {
     this.tool.cancel();
     this.tool = this.makeTool(name);
     this.toolName = name;
+    if (name !== "select") this.lastDrawTool = name;
     this.preview = [];
+    this.dyn = null;
     this.say(`도구: ${name}`);
     this.emitUi();
     this.scheduleRender();
+  }
+
+  /** Repeat the last drawing command (AutoCAD Spacebar / Enter behaviour). */
+  repeatLastTool(): void {
+    if (this.lastDrawTool) this.setTool(this.lastDrawTool);
   }
 
   applyOperations(ops: Op[]): void {
@@ -235,11 +259,55 @@ export class CadEngine {
     this.scheduleRender();
     this.emitUi();
   }
+  toggleOrtho(): void {
+    this.orthoOn = !this.orthoOn;
+    if (this.orthoOn) this.polarOn = false;
+    this.say(`직교(ORTHO) ${this.orthoOn ? "켬" : "끔"}`);
+    this.emitUi();
+  }
+  togglePolar(): void {
+    this.polarOn = !this.polarOn;
+    if (this.polarOn) this.orthoOn = false;
+    this.say(`극좌표 추적(POLAR ${this.polarStep}°) ${this.polarOn ? "켬" : "끔"}`);
+    this.emitUi();
+  }
 
-  /** Current snapped world point (used by tools and coordinate readout). */
-  private snappedCursor(p: Vec2): Vec2 {
-    this.snap = findSnap(this.doc, p, 12, this.vp.scale, this.snapSettings);
-    return this.snap ? this.snap.point : p;
+  /**
+   * Resolve a screen point to a world point applying, in priority order:
+   * object snap (strongest) > ortho/polar tracking from the tool anchor > grid.
+   * Also updates the dynamic-input (distance/angle) readout.
+   */
+  private resolvePoint(sp: Vec2): Vec2 {
+    const raw = this.vp.toWorld(sp);
+    this.snap = findSnap(this.doc, raw, 12, this.vp.scale, this.snapSettings);
+    const anchor = this.tool.anchor ? this.tool.anchor() : null;
+    let p: Vec2;
+    if (this.snap && this.snap.kind !== "grid") {
+      p = this.snap.point; // object snap wins
+    } else if (anchor && this.orthoOn) {
+      p = this.orthoConstrain(anchor, raw);
+      this.snap = null;
+    } else if (anchor && this.polarOn) {
+      p = this.polarConstrain(anchor, raw);
+    } else {
+      p = this.snap ? this.snap.point : raw; // grid snap or raw
+    }
+    this.dyn = anchor ? { dist: dist(anchor, p), angle: deg(angleBetween(anchor, p)) } : null;
+    return p;
+  }
+
+  private orthoConstrain(a: Vec2, p: Vec2): Vec2 {
+    return Math.abs(p.x - a.x) >= Math.abs(p.y - a.y) ? { x: p.x, y: a.y } : { x: a.x, y: p.y };
+  }
+
+  private polarConstrain(a: Vec2, p: Vec2): Vec2 {
+    const d = dist(a, p);
+    const step = rad(this.polarStep);
+    const snapped = Math.round(angleBetween(a, p) / step) * step;
+    const cursorSnap = { point: { x: a.x + d * Math.cos(snapped), y: a.y + d * Math.sin(snapped) }, kind: "polar" };
+    // surface a marker so the renderer shows the tracking lock
+    this.snap = { point: cursorSnap.point, kind: "polar" };
+    return cursorSnap.point;
   }
 
   // ---- input handling --------------------------------------------------
@@ -279,7 +347,7 @@ export class CadEngine {
       return;
     }
     if (e.button !== 0) return;
-    const world = this.snappedCursor(this.vp.toWorld(sp));
+    const world = this.resolvePoint(sp);
 
     if (this.toolName === "select") {
       const grip = this.pickGrip(world);
@@ -303,7 +371,7 @@ export class CadEngine {
       this.scheduleRender();
       return;
     }
-    const world = this.snappedCursor(this.vp.toWorld(sp));
+    const world = this.resolvePoint(sp);
     this.cursorWorld = world;
 
     if (this.toolName === "select") {
@@ -332,7 +400,7 @@ export class CadEngine {
     }
     if (this.toolName === "select" && this.gripDrag) {
       const sp = this.screenPos(e);
-      const world = this.snappedCursor(this.vp.toWorld(sp));
+      const world = this.resolvePoint(sp);
       const drag = this.gripDrag;
       this.doc.transact(() => {
         const ent = this.doc.entities.find((x) => x.id === drag.id);
@@ -402,6 +470,27 @@ export class CadEngine {
     } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") {
       e.preventDefault();
       this.redo();
+    } else if (e.key === " ") {
+      // Spacebar: finish the active op, else repeat the last drawing command
+      e.preventDefault();
+      if (this.toolName === "select") this.repeatLastTool();
+      else {
+        this.tool.finish?.();
+        this.preview = this.tool.preview();
+        this.scheduleRender();
+      }
+    } else if (e.key === "F3") {
+      e.preventDefault();
+      this.toggleSnap();
+    } else if (e.key === "F7") {
+      e.preventDefault();
+      this.toggleGrid();
+    } else if (e.key === "F8") {
+      e.preventDefault();
+      this.toggleOrtho();
+    } else if (e.key === "F10") {
+      e.preventDefault();
+      this.togglePolar();
     }
   };
 
@@ -598,6 +687,7 @@ export class CadEngine {
           move(p) {
             cur = p;
           },
+          anchor: () => a,
           preview() {
             if (a && cur)
               return [{ id: "prev", type: "line", layer: eng.doc.currentLayer, a, b: cur }];
@@ -626,6 +716,7 @@ export class CadEngine {
           move(p) {
             cur = p;
           },
+          anchor: () => (pts.length ? pts[pts.length - 1] : null),
           preview() {
             const all = cur ? [...pts, cur] : [...pts];
             if (all.length < 2) return [];
@@ -670,6 +761,7 @@ export class CadEngine {
           move(p) {
             cur = p;
           },
+          anchor: () => a,
           preview() {
             if (!a || !cur) return [];
             const c = { x: Math.min(a.x, cur.x), y: Math.min(a.y, cur.y) };
@@ -712,6 +804,7 @@ export class CadEngine {
           move(p) {
             cur = p;
           },
+          anchor: () => center,
           preview() {
             if (!center || !cur) return [];
             return [
@@ -860,6 +953,7 @@ export class CadEngine {
           move(p) {
             cur = p;
           },
+          anchor: () => a,
           preview() {
             if (a && cur)
               return [
@@ -897,6 +991,7 @@ export class CadEngine {
           move(p) {
             cur = p;
           },
+          anchor: () => center,
           preview() {
             if (!center || !cur) return [];
             return [
@@ -1225,6 +1320,7 @@ export class CadEngine {
       move(p) {
         cur = p;
       },
+      anchor: () => base,
       preview() {
         if (base && cur) return previewFor(base, cur);
         return [];

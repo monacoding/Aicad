@@ -76,9 +76,8 @@ export function App() {
       <div className="canvas-wrap">
         <canvas ref={canvasRef} />
         <div className="hud">
-          {ui?.cursor
-            ? `X ${ui.cursor.x.toFixed(2)}  Y ${ui.cursor.y.toFixed(2)}`
-            : "X —  Y —"}
+          {ui?.cursor ? `X ${ui.cursor.x.toFixed(2)}  Y ${ui.cursor.y.toFixed(2)}` : "X —  Y —"}
+          {ui?.dyn ? `   ↦ ${ui.dyn.dist.toFixed(2)} ∠ ${ui.dyn.angle.toFixed(1)}°` : ""}
         </div>
       </div>
       {ready ? <Side engine={eng} ui={ui} /> : <div className="side" />}
@@ -407,11 +406,17 @@ function StatusBar({ engine, ui }: { engine: () => CadEngine; ui: EngineUiState 
       <div className="spacer" style={{ flex: 1 }} />
       <span>선택: <b>{ui?.selectionCount ?? 0}</b></span>
       <span>배율: <b>{ui ? ui.scale.toFixed(1) : "-"}</b></span>
-      <span className={`pill ${ui?.snapOn ? "on" : ""}`} onClick={() => engine().toggleSnap()}>
+      <span className={`pill ${ui?.snapOn ? "on" : ""}`} onClick={() => engine().toggleSnap()} title="객체 스냅 (F3)">
         스냅
       </span>
-      <span className={`pill ${ui?.gridOn ? "on" : ""}`} onClick={() => engine().toggleGrid()}>
+      <span className={`pill ${ui?.gridOn ? "on" : ""}`} onClick={() => engine().toggleGrid()} title="그리드 (F7)">
         그리드
+      </span>
+      <span className={`pill ${ui?.orthoOn ? "on" : ""}`} onClick={() => engine().toggleOrtho()} title="직교 모드 (F8)">
+        직교
+      </span>
+      <span className={`pill ${ui?.polarOn ? "on" : ""}`} onClick={() => engine().togglePolar()} title="극좌표 추적 (F10)">
+        극좌표
       </span>
     </div>
   );
