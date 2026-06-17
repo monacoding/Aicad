@@ -45,11 +45,15 @@ export function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<CadEngine | null>(null);
   const [ui, setUi] = useState<EngineUiState | null>(null);
+  // engine is created in the effect below (after the canvas mounts); panels that
+  // read engine state must wait for this, otherwise they deref a null engine.
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
     if (!canvasRef.current) return;
     const engine = new CadEngine(canvasRef.current);
     engineRef.current = engine;
+    setReady(true);
     const unsub = engine.subscribe(setUi);
 
     const wrap = canvasRef.current.parentElement!;
@@ -77,7 +81,7 @@ export function App() {
             : "X —  Y —"}
         </div>
       </div>
-      <Side engine={eng} ui={ui} />
+      {ready ? <Side engine={eng} ui={ui} /> : <div className="side" />}
       <CommandBar engine={eng} ui={ui} />
     </div>
   );
