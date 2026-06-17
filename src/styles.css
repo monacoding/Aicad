@@ -302,6 +302,61 @@ canvas {
   color: var(--text);
   font-weight: 600;
 }
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+}
+.bom {
+  width: min(960px, 92vw);
+  max-height: 86vh;
+  overflow: auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+.bom header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.bom header h2 {
+  margin: 0;
+  font-size: 15px;
+}
+.bom h4 {
+  margin: 14px 0 6px;
+  color: var(--accent);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+.bom table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.bom th,
+.bom td {
+  border: 1px solid var(--border);
+  padding: 3px 8px;
+  text-align: left;
+}
+.bom th {
+  background: var(--panel-2);
+  color: var(--muted);
+}
+.bom .empty {
+  color: var(--muted);
+  font-size: 12px;
+}
 .statusbar .pill {
   cursor: pointer;
 }

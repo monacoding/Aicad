@@ -3,6 +3,7 @@ import { CadEngine, EngineUiState, ToolName } from "./cad/engine";
 import { runCommand } from "./cad/commands";
 import { runNaturalLanguage } from "./cad/nl";
 import { exportDXF, importDXF } from "./cad/dxf";
+import { extractBom, toCSV, type ValveRow, type PipeRow, type ItemRow } from "./cad/bom";
 
 const TOOLS: { name: ToolName; label: string; key?: string; sep?: boolean }[] = [
   { name: "select", label: "선택", key: "S" },
@@ -68,10 +69,11 @@ export function App() {
   }, []);
 
   const eng = () => engineRef.current!;
+  const [showBom, setShowBom] = useState(false);
 
   return (
     <div className="app">
-      <TopBar engine={eng} />
+      <TopBar engine={eng} onBom={() => setShowBom(true)} />
       <Toolbar tool={ui?.tool} onPick={(t) => eng().setTool(t)} />
       <div className="canvas-wrap">
         <canvas ref={canvasRef} />
@@ -82,11 +84,12 @@ export function App() {
       </div>
       {ready ? <Side engine={eng} ui={ui} /> : <div className="side" />}
       <CommandBar engine={eng} ui={ui} />
+      {showBom && ready && <BomOverlay engine={eng} onClose={() => setShowBom(false)} />}
     </div>
   );
 }
 
-function TopBar({ engine }: { engine: () => CadEngine }) {
+function TopBar({ engine, onBom }: { engine: () => CadEngine; onBom: () => void }) {
   const fileRef = useRef<HTMLInputElement>(null);
 
   const saveDXF = () => {
@@ -133,6 +136,9 @@ function TopBar({ engine }: { engine: () => CadEngine }) {
       </button>
       <button className="btn" onClick={savePNG}>
         PNG
+      </button>
+      <button className="btn" onClick={onBom} title="밸브/파이프 리스트 추출 (BOM)">
+        리스트
       </button>
       <div className="spacer" />
       <button className="btn" onClick={() => engine().undo()}>
@@ -418,6 +424,82 @@ function StatusBar({ engine, ui }: { engine: () => CadEngine; ui: EngineUiState 
       <span className={`pill ${ui?.polarOn ? "on" : ""}`} onClick={() => engine().togglePolar()} title="극좌표 추적 (F10)">
         극좌표
       </span>
+    </div>
+  );
+}
+
+function BomOverlay({ engine, onClose }: { engine: () => CadEngine; onClose: () => void }) {
+  const bom = extractBom(engine().doc);
+  const valveCols: (keyof ValveRow)[] = ["tag", "type", "size", "service", "layer"];
+  const pipeCols: (keyof PipeRow)[] = ["tag", "size", "service", "length", "layer"];
+  const itemCols: (keyof ItemRow)[] = ["tag", "type", "service", "layer"];
+
+  const Table = <T extends Record<string, string | number>>({
+    title,
+    rows,
+    cols,
+    csv,
+  }: {
+    title: string;
+    rows: T[];
+    cols: (keyof T)[];
+    csv: string;
+  }) => (
+    <div>
+      <h4>
+        {title} ({rows.length}){" "}
+        {rows.length > 0 && (
+          <button
+            className="btn"
+            style={{ padding: "1px 8px", marginLeft: 6 }}
+            onClick={() => download(csv, `${title.replace(/\s+/g, "_").toLowerCase()}.csv`, "text/csv")}
+          >
+            CSV 저장
+          </button>
+        )}
+      </h4>
+      {rows.length === 0 ? (
+        <div className="empty">해당 항목 없음</div>
+      ) : (
+        <table>
+          <thead>
+            <tr>
+              {cols.map((c) => (
+                <th key={String(c)}>{String(c).toUpperCase()}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={i}>
+                {cols.map((c) => (
+                  <td key={String(c)}>{String(r[c] ?? "")}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+
+  const total = bom.valves.length + bom.pipes.length + bom.instruments.length + bom.equipment.length;
+
+  return (
+    <div className="overlay" onClick={onClose}>
+      <div className="bom" onClick={(e) => e.stopPropagation()}>
+        <header>
+          <h2>자재 추출 (BOM) — 총 {total}건</h2>
+          <div className="spacer" style={{ flex: 1 }} />
+          <button className="btn" onClick={onClose}>
+            닫기 ✕
+          </button>
+        </header>
+        <Table title="VALVE LIST" rows={bom.valves} cols={valveCols} csv={toCSV(bom.valves, valveCols)} />
+        <Table title="PIPE LIST" rows={bom.pipes} cols={pipeCols} csv={toCSV(bom.pipes, pipeCols)} />
+        <Table title="EQUIPMENT LIST" rows={bom.equipment} cols={itemCols} csv={toCSV(bom.equipment, itemCols)} />
+        <Table title="INSTRUMENT LIST" rows={bom.instruments} cols={itemCols} csv={toCSV(bom.instruments, itemCols)} />
+      </div>
     </div>
   );
 }

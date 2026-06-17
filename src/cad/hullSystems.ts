@@ -30,18 +30,18 @@ export interface SystemSpec {
 }
 
 // ---- shared low-level emit helpers ----------------------------------------
-function makeEmit() {
+function makeEmit(service = "", size = "DN250") {
   const ops: Op[] = [];
   const api = {
     ops,
     text: (at: XY, t: string, h = 0.6, layer = "0", color?: string) =>
       ops.push({ op: "add_text", at, text: t, height: h, layer, color }),
-    pipe: (points: XY[]) => ops.push({ op: "add_pipe", points }),
+    pipe: (points: XY[]) => ops.push({ op: "add_pipe", points, service, size }),
     signal: (a: XY, b: XY) => ops.push({ op: "add_signal", a, b }),
     rect: (corner: XY, w: number, h: number, color: string, fill?: string, layer = EQ) =>
       ops.push({ op: "add_rectangle", corner, width: w, height: h, layer, color, fill }),
     sym: (symbol: string, at: XY, o: Partial<{ scale: number; rotation: number; tag: string; layer: string }> = {}) =>
-      ops.push({ op: "add_symbol", symbol, at, scale: o.scale ?? 1, rotation: o.rotation ?? 0, tag: o.tag, layer: o.layer ?? EQ }),
+      ops.push({ op: "add_symbol", symbol, at, scale: o.scale ?? 1, rotation: o.rotation ?? 0, tag: o.tag, layer: o.layer ?? EQ, service }),
   };
   return api;
 }
@@ -66,7 +66,7 @@ const TANK_H = 3.4;
 
 /** Build a horizontal-flow P&ID from a spec with automatic, collision-free spacing. */
 export function buildLinearSystem(spec: SystemSpec): Op[] {
-  const api = makeEmit();
+  const api = makeEmit(spec.en);
   const n = spec.inline.length;
   const left = 0;
   const xs = spec.inline.map((_, i) => left + (i + 1) * SPACING);

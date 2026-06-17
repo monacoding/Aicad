@@ -1,6 +1,7 @@
 // AutoCAD-style text command parser. Drives the engine directly.
 import { CadEngine, ToolName } from "./engine";
 import { Op } from "./ops";
+import { extractBom } from "./bom";
 
 const TOOLS: ToolName[] = [
   "select",
@@ -144,6 +145,14 @@ export function runCommand(engine: CadEngine, raw: string): CommandResult {
       case "grid":
         engine.toggleGrid();
         return { ok: true, message: "그리드 토글" };
+      case "bom":
+      case "list": {
+        const b = extractBom(engine.doc);
+        return {
+          ok: true,
+          message: `BOM — 밸브 ${b.valves.length}, 파이프 ${b.pipes.length}, 장비 ${b.equipment.length}, 계기 ${b.instruments.length} (상단 '리스트' 버튼에서 표·CSV)`,
+        };
+      }
     }
 
     switch (cmd) {

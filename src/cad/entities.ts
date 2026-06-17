@@ -41,6 +41,11 @@ export interface BaseEntity {
   width?: number;
   /** Group id — entities sharing it select/move together (a placed symbol/block). */
   group?: string;
+  /** BOM metadata: component kind (symbol name / "pipe" / "signal"), tag, size, service. */
+  kind?: string;
+  tag?: string;
+  size?: string;
+  service?: string;
 }
 
 export interface LineEntity extends BaseEntity {

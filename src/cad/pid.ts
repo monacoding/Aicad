@@ -33,6 +33,8 @@ export interface SymbolOpts {
   color?: string;
   tag?: string;
   group?: string;
+  size?: string;
+  service?: string;
 }
 
 // ---- local-frame proto builders (id assigned later) -----------------------
@@ -176,7 +178,17 @@ export function makeSymbol(name: SymbolName, opts: SymbolOpts): Entity[] {
   }
 
   return protos.map((p) => {
-    let e = { ...(p as Entity), id: newId(), layer, group } as Entity;
+    // every entity of the symbol carries BOM metadata so any one identifies it
+    let e = {
+      ...(p as Entity),
+      id: newId(),
+      layer,
+      group,
+      kind: name,
+      tag: opts.tag,
+      size: opts.size,
+      service: opts.service,
+    } as Entity;
     if (opts.color) e.color = opts.color;
     e = scaleEntity(e, { x: 0, y: 0 }, scale);
     e = rotateEntity(e, { x: 0, y: 0 }, rotation);
@@ -186,12 +198,12 @@ export function makeSymbol(name: SymbolName, opts: SymbolOpts): Entity[] {
 }
 
 /** A pipe run: a heavier solid polyline on the "process" layer. */
-export function makePipe(points: Vec2[], layer = "process", width = 1.8): Entity[] {
+export function makePipe(points: Vec2[], layer = "process", width = 1.8, size?: string, service?: string): Entity[] {
   if (points.length < 2) return [];
-  return [{ id: newId(), type: "polyline", layer, points, closed: false, width }];
+  return [{ id: newId(), type: "polyline", layer, points, closed: false, width, kind: "pipe", size, service }];
 }
 
 /** An instrument signal line (dashed, thin). */
 export function makeSignal(a: Vec2, b: Vec2, layer = "instrument"): Entity[] {
-  return [{ id: newId(), type: "line", layer, a, b, lineType: "dashed", width: 0.8 }];
+  return [{ id: newId(), type: "line", layer, a, b, lineType: "dashed", width: 0.8, kind: "signal" }];
 }
