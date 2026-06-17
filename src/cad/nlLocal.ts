@@ -6,6 +6,7 @@
 import { Op, XY } from "./ops";
 import { SymbolName } from "./pid";
 import { buildBallastSystem, buildLngcBallastSystem } from "./templates";
+import { matchHullSystem, buildHullSystem } from "./hullSystems";
 
 export interface LocalResult {
   ops: Op[];
@@ -87,6 +88,8 @@ function clause(text: string): Op[] {
   if ((has(s, "발라스트", "밸러스트", "평형수") || /ballast/i.test(s)) && /174|lngc|lng|운반선|carrier/i.test(s))
     return buildLngcBallastSystem();
   if (has(s, "발라스트", "밸러스트", "평형수") || /ballast/i.test(s)) return buildBallastSystem();
+  const hull = matchHullSystem(s);
+  if (hull) return buildHullSystem(hull);
 
   // layer
   const layerM = s.match(/레이어\s*([A-Za-z0-9_가-힣]+)/);

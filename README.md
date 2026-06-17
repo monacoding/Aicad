@@ -29,6 +29,10 @@
   이중선체 WBT 배치를 작도하고, 밸러스트 작업을 100회 시뮬레이션(과도 힐·트림 추적)해
   균형 충수 시퀀스로 보완. 탱크 충수율 주석 지원. `npx tsx scripts/lngcsim.mts`,
   보고서 `docs/LNGC_BALLAST_SIM.md`
+- **선체 배관 16종** — 빌지·소화·해수/청수냉각·연료유·윤활유·위생청수·오수·슬러지·
+  압축공기·증기급수·유압·불활성가스 등을 자동 배치 빌더로 작도(자연어 "소화 시스템
+  그려줘" 등). `src/cad/hullSystems.ts`, `npx tsx scripts/hull.mts --render`,
+  보고서 `docs/HULL_PIPING.md`
 
 ## 아키텍처
 
