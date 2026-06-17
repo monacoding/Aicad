@@ -1,7 +1,7 @@
 // Object snapping (endpoint, midpoint, center, quadrant, intersection, grid).
 import { CadDocument } from "./document";
 import { Entity, snapPoints } from "./entities";
-import { Vec2, dist, segSegIntersect } from "./geometry";
+import { Vec2, dist, distToSegment, segSegIntersect } from "./geometry";
 
 export interface SnapResult {
   point: Vec2;
@@ -58,11 +58,15 @@ export function findSnap(
     }
   }
 
-  // intersection snaps (only check nearby segment pairs)
+  // intersection snaps — only segments passing near the cursor, so the pairwise
+  // cost stays tiny even on dense P&ID drawings (was O(n^2) over the whole doc).
+  const near = tol * 6;
   const segs: [Vec2, Vec2][] = [];
   for (const e of doc.entities) {
     if (!doc.isVisible(e)) continue;
-    for (const s of lineSegments(e)) segs.push(s);
+    for (const s of lineSegments(e)) {
+      if (distToSegment(world, s[0], s[1]) <= near) segs.push(s);
+    }
   }
   for (let i = 0; i < segs.length; i++) {
     for (let j = i + 1; j < segs.length; j++) {

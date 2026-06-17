@@ -17,6 +17,7 @@ import {
   arrayRect,
   arrayPolar,
 } from "./geomops";
+import { makeSymbol, makePipe, makeSignal, SYMBOLS, SymbolName } from "./pid";
 
 export type XY = [number, number];
 
@@ -66,6 +67,18 @@ export type Op =
   | { op: "array_rect"; selector?: Selector; rows: number; cols: number; dx: number; dy: number }
   | { op: "array_polar"; selector?: Selector; center: XY; count: number; angle?: number }
   | { op: "hatch"; selector?: Selector; color?: string }
+  | {
+      op: "add_symbol";
+      symbol: string;
+      at: XY;
+      scale?: number;
+      rotation?: number;
+      tag?: string;
+      layer?: string;
+      color?: string;
+    }
+  | { op: "add_pipe"; points: XY[]; layer?: string }
+  | { op: "add_signal"; a: XY; b: XY; layer?: string }
   | { op: "set_layer"; name: string; color?: string; visible?: boolean; current?: boolean }
   | { op: "clear" };
 
@@ -318,6 +331,42 @@ export function applyOps(doc: CadDocument, ops: Op[], ctx: ApplyContext): ApplyR
             }
           }
           messages.push(`채우기: ${n}개`);
+          break;
+        }
+        case "add_symbol": {
+          const sym = op.symbol as SymbolName;
+          if (!SYMBOLS.includes(sym)) {
+            messages.push(`알 수 없는 심볼: ${op.symbol}`);
+            break;
+          }
+          const lyr = op.layer ?? "equipment";
+          doc.ensureLayer(lyr, "#ffb454");
+          const es = makeSymbol(sym, {
+            at: xy(op.at),
+            scale: op.scale ?? 1,
+            rotation: op.rotation ?? 0,
+            tag: op.tag,
+            layer: lyr,
+            color: op.color,
+          });
+          doc.add(...es);
+          es.forEach((e) => created.push(e.id));
+          break;
+        }
+        case "add_pipe": {
+          const lyr = op.layer ?? "process";
+          doc.ensureLayer(lyr, "#7bd88f");
+          const es = makePipe(op.points.map(xy), lyr) as Entity[];
+          doc.add(...es);
+          es.forEach((e) => created.push(e.id));
+          break;
+        }
+        case "add_signal": {
+          const lyr = op.layer ?? "instrument";
+          doc.ensureLayer(lyr, "#5cc8ff");
+          const es = makeSignal(xy(op.a), xy(op.b), lyr);
+          doc.add(...es);
+          es.forEach((e) => created.push(e.id));
           break;
         }
         case "set_layer": {

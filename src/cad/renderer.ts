@@ -1,7 +1,20 @@
 // Canvas 2D renderer: grid, entities, selection highlight, snap markers, preview.
 import { CadDocument } from "./document";
 import { Viewport } from "./viewport";
-import { Entity, ellipsePoint, snapPoints } from "./entities";
+import { Entity, ellipsePoint, snapPoints, LineType } from "./entities";
+
+function dashPattern(t: LineType | undefined): number[] {
+  switch (t) {
+    case "dashed":
+      return [10, 6];
+    case "dotted":
+      return [2, 4];
+    case "phantom":
+      return [16, 5, 4, 5];
+    default:
+      return [];
+  }
+}
 import { Vec2 } from "./geometry";
 import { SnapResult } from "./snap";
 
@@ -107,10 +120,12 @@ export class Renderer {
     preview = false,
   ): void {
     const { ctx, vp } = this;
-    ctx.lineWidth = selected ? 2.5 : hovered ? 2 : 1.4;
+    const base = selected ? 2.5 : hovered ? 2 : 1.4;
+    ctx.lineWidth = base * (e.width ?? 1);
     ctx.strokeStyle = selected ? "#4da3ff" : color;
     ctx.fillStyle = ctx.strokeStyle;
     if (preview) ctx.setLineDash([6, 4]);
+    else ctx.setLineDash(dashPattern(e.lineType));
 
     const S = (p: Vec2) => vp.toScreen(p);
 

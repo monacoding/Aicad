@@ -25,6 +25,8 @@ export type EntityType =
   | "text"
   | "dimension";
 
+export type LineType = "solid" | "dashed" | "dotted" | "phantom";
+
 export interface BaseEntity {
   id: string;
   type: EntityType;
@@ -33,6 +35,12 @@ export interface BaseEntity {
   color?: string;
   /** Solid fill color for closed shapes (polyline closed / circle / ellipse). */
   fill?: string;
+  /** Dash pattern for outlines (P&ID signal lines etc.). Default solid. */
+  lineType?: LineType;
+  /** Lineweight multiplier (1 = default). Pipes are heavier than signals. */
+  width?: number;
+  /** Group id — entities sharing it select/move together (a placed symbol/block). */
+  group?: string;
 }
 
 export interface LineEntity extends BaseEntity {

@@ -14,8 +14,21 @@ export function exportDXF(doc: CadDocument): string {
   // header
   s += g(0, "SECTION") + g(2, "HEADER") + g(0, "ENDSEC");
 
-  // tables: layers
+  // tables: linetypes + layers
   s += g(0, "SECTION") + g(2, "TABLES");
+  const ltypes: [string, number[]][] = [
+    ["CONTINUOUS", []],
+    ["DASHED", [0.5, -0.25]],
+    ["DOT", [0, -0.25]],
+    ["PHANTOM", [1.0, -0.25, 0.25, -0.25]],
+  ];
+  s += g(0, "TABLE") + g(2, "LTYPE") + g(70, ltypes.length);
+  for (const [name, pat] of ltypes) {
+    s += g(0, "LTYPE") + g(2, name) + g(70, 0) + g(3, "") + g(72, 65) + g(73, pat.length);
+    s += g(40, pat.reduce((a, b) => a + Math.abs(b), 0));
+    for (const d of pat) s += g(49, d);
+  }
+  s += g(0, "ENDTAB");
   s += g(0, "TABLE") + g(2, "LAYER") + g(70, doc.layers.length);
   for (const l of doc.layers) {
     s += g(0, "LAYER") + g(2, l.name) + g(70, l.locked ? 4 : 0) + g(62, aciFromHex(l.color)) + g(6, "CONTINUOUS");
@@ -31,15 +44,29 @@ export function exportDXF(doc: CadDocument): string {
   return s;
 }
 
+function ltypeName(t: Entity["lineType"]): string {
+  switch (t) {
+    case "dashed":
+      return "DASHED";
+    case "dotted":
+      return "DOT";
+    case "phantom":
+      return "PHANTOM";
+    default:
+      return "CONTINUOUS";
+  }
+}
+
 function entityToDXF(e: Entity): string {
   const layer = e.layer || "0";
+  const lt = g(6, ltypeName(e.lineType));
   switch (e.type) {
     case "line":
       return (
-        g(0, "LINE") + g(8, layer) + g(10, e.a.x) + g(20, e.a.y) + g(30, 0) + g(11, e.b.x) + g(21, e.b.y) + g(31, 0)
+        g(0, "LINE") + g(8, layer) + lt + g(10, e.a.x) + g(20, e.a.y) + g(30, 0) + g(11, e.b.x) + g(21, e.b.y) + g(31, 0)
       );
     case "polyline": {
-      let s = g(0, "LWPOLYLINE") + g(8, layer) + g(90, e.points.length) + g(70, e.closed ? 1 : 0);
+      let s = g(0, "LWPOLYLINE") + g(8, layer) + lt + g(90, e.points.length) + g(70, e.closed ? 1 : 0);
       for (const p of e.points) s += g(10, p.x) + g(20, p.y);
       return s;
     }
@@ -156,6 +183,7 @@ export function importDXF(text: string): ImportResult {
     const num = (code: number, idx = 0, def = 0) =>
       fields[code]?.[idx] !== undefined ? parseFloat(fields[code][idx]) : def;
     const layer = (fields[8]?.[0] ?? "0").trim();
+    const lt = lineTypeFromName(fields[6]?.[0]);
 
     switch (kind) {
       case "LINE":
@@ -163,6 +191,7 @@ export function importDXF(text: string): ImportResult {
           id: newId(),
           type: "line",
           layer,
+          lineType: lt,
           a: { x: num(10), y: num(20) },
           b: { x: num(11), y: num(21) },
         });
@@ -217,7 +246,8 @@ export function importDXF(text: string): ImportResult {
         const ys = fields[20] ?? [];
         const points = xs.map((x, k) => ({ x: parseFloat(x), y: parseFloat(ys[k] ?? "0") }));
         const closed = (num(70) & 1) === 1;
-        if (points.length >= 2) entities.push({ id: newId(), type: "polyline", layer, points, closed });
+        if (points.length >= 2)
+          entities.push({ id: newId(), type: "polyline", layer, lineType: lt, points, closed });
         break;
       }
     }
@@ -242,6 +272,20 @@ const ACI: Record<number, string> = {
 
 function hexFromAci(aci: number): string {
   return ACI[aci] ?? "#e6e6e6";
+}
+
+function lineTypeFromName(name: string | undefined): Entity["lineType"] {
+  switch ((name ?? "").trim().toUpperCase()) {
+    case "DASHED":
+      return "dashed";
+    case "DOT":
+    case "DOTTED":
+      return "dotted";
+    case "PHANTOM":
+      return "phantom";
+    default:
+      return undefined;
+  }
 }
 
 function aciFromHex(hex: string): number {

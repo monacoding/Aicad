@@ -496,12 +496,31 @@ export class CadEngine {
     return null;
   }
 
+  /** Expand a set of ids to include all members of any group they touch. */
+  private expandGroups(ids: Iterable<string>): Set<string> {
+    const groups = new Set<string>();
+    for (const id of ids) {
+      const e = this.doc.entities.find((x) => x.id === id);
+      if (e?.group) groups.add(e.group);
+    }
+    const out = new Set(ids);
+    if (groups.size) {
+      for (const e of this.doc.entities) if (e.group && groups.has(e.group)) out.add(e.id);
+    }
+    return out;
+  }
+
   private clickSelect(world: Vec2, additive: boolean): void {
     const id = this.pick(world);
     if (!additive) this.selection.clear();
     if (id) {
-      if (this.selection.has(id)) this.selection.delete(id);
-      else this.selection.add(id);
+      const e = this.doc.entities.find((x) => x.id === id);
+      const members = e?.group ? [...this.doc.entities].filter((x) => x.group === e.group).map((x) => x.id) : [id];
+      const allSelected = members.every((m) => this.selection.has(m));
+      for (const m of members) {
+        if (allSelected) this.selection.delete(m);
+        else this.selection.add(m);
+      }
     }
   }
 
@@ -521,6 +540,7 @@ export class CadEngine {
         eb.min.x <= bb.max.x && eb.max.x >= bb.min.x && eb.min.y <= bb.max.y && eb.max.y >= bb.min.y;
       if (crossing ? overlaps : inside) this.selection.add(e.id);
     }
+    this.selection = this.expandGroups(this.selection);
   }
 
   // ---- tool factory ----------------------------------------------------

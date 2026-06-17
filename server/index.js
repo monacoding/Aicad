@@ -57,7 +57,19 @@ Examples:
 - "5x3 grid spaced 2 apart" -> array_rect rows 3 cols 5 dx 2 dy 2.
 - "8 holes in a circle of radius 10" -> add_circle (hole) then array_polar center [0,0] count 8.
 - "fill the selected shape" -> hatch with an optional color.
-- "ellipse 6 wide 3 tall at origin" -> add_ellipse center [0,0] rx 3 ry 1.5.`;
+- "ellipse 6 wide 3 tall at origin" -> add_ellipse center [0,0] rx 3 ry 1.5.
+
+P&ID / ship process diagrams:
+- Use add_symbol for equipment and fittings. Symbols: gate_valve, globe_valve, check_valve,
+  ball_valve, butterfly_valve, control_valve, pump, vessel, tank, heat_exchanger, instrument,
+  reducer, flange, arrow, strainer, motor. Give each a tag (e.g. "P-201", "FT-101", "V-12").
+- Symbols are ~1 unit; space equipment 4-8 units apart along a horizontal process header.
+- Connect equipment with add_pipe (heavy solid polyline). Route orthogonally (right-angle bends).
+- Use add_signal (dashed) from an instrument bubble to the device it measures/controls.
+- rotation aligns a symbol to its pipe (0 = along +X). Put pumps/valves inline on the pipe.
+- Example "fuel oil transfer P&ID": a tank (left) -> pipe -> strainer -> pump (with motor) ->
+  check_valve -> gate_valve -> service tank (right); instrument bubbles (LT, PT, FT) with
+  signal lines to a control_valve; tags on every item.`;
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true, model: MODEL, configured: !!client });

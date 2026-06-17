@@ -319,6 +319,38 @@ export function runCommand(engine: CadEngine, raw: string): CommandResult {
       case "e":
         ops.push({ op: "delete", selector: "selected" });
         break;
+      case "symbol":
+      case "sym": {
+        const name = rest[0];
+        const at = pt(rest[1]);
+        const scale = Number(rest[2]);
+        const rot = Number(rest[3]);
+        const tag = rest.slice(4).join(" ") || undefined;
+        if (name && at)
+          ops.push({
+            op: "add_symbol",
+            symbol: name,
+            at,
+            scale: Number.isFinite(scale) ? scale : 1,
+            rotation: Number.isFinite(rot) ? rot : 0,
+            tag,
+          });
+        else return { ok: false, message: "사용법: SYMBOL <이름> <x,y> [배율] [각도] [태그]" };
+        break;
+      }
+      case "pipe": {
+        const points = parseSequence(rest);
+        if (points.length >= 2) ops.push({ op: "add_pipe", points });
+        else return { ok: false, message: "사용법: PIPE x,y x,y ..." };
+        break;
+      }
+      case "signal": {
+        const a = pt(rest[0]);
+        const b = pt(rest[1]);
+        if (a && b) ops.push({ op: "add_signal", a, b });
+        else return { ok: false, message: "사용법: SIGNAL <x,y> <x,y>" };
+        break;
+      }
       case "layer":
       case "la": {
         const name = rest[0];
