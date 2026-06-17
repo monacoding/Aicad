@@ -69,7 +69,12 @@ P&ID / ship process diagrams:
 - rotation aligns a symbol to its pipe (0 = along +X). Put pumps/valves inline on the pipe.
 - Example "fuel oil transfer P&ID": a tank (left) -> pipe -> strainer -> pump (with motor) ->
   check_valve -> gate_valve -> service tank (right); instrument bubbles (LT, PT, FT) with
-  signal lines to a control_valve; tags on every item.`;
+  signal lines to a control_valve; tags on every item.
+- Example "ballast system": sea chests (high/low) + sea valves -> strainer -> two ballast
+  pumps in parallel (motor-driven) with discharge check_valves -> BWTS (a filter box then a
+  UV reactor box) -> flow meter -> ballast main header -> branch butterfly_valves down to
+  ballast tanks (FPT, double-bottom P/S, APT); add an overboard branch with a valve + arrow
+  and pressure/flow/level instruments with signal lines.`;
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true, model: MODEL, configured: !!client });

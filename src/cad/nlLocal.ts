@@ -5,6 +5,7 @@
 // Claude path is used instead (and is far more flexible).
 import { Op, XY } from "./ops";
 import { SymbolName } from "./pid";
+import { buildBallastSystem } from "./templates";
 
 export interface LocalResult {
   ops: Op[];
@@ -81,6 +82,9 @@ function clause(text: string): Op[] {
   // clear
   if (has(s, "전체 삭제", "모두 삭제", "다 지워", "초기화", "비우") || /\bclear\b/.test(sl))
     return [{ op: "clear" }];
+
+  // system templates (learned diagrams)
+  if (has(s, "발라스트", "밸러스트", "평형수") || /ballast/i.test(s)) return buildBallastSystem();
 
   // layer
   const layerM = s.match(/레이어\s*([A-Za-z0-9_가-힣]+)/);

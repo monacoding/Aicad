@@ -26,7 +26,7 @@ export type Selector = "all" | "selected" | "last" | { layer: string };
 export type Op =
   | { op: "add_line"; a: XY; b: XY; layer?: string; color?: string }
   | { op: "add_polyline"; points: XY[]; closed?: boolean; layer?: string; color?: string }
-  | { op: "add_rectangle"; corner: XY; width: number; height: number; layer?: string; color?: string }
+  | { op: "add_rectangle"; corner: XY; width: number; height: number; layer?: string; color?: string; fill?: string }
   | { op: "add_circle"; center: XY; radius: number; layer?: string; color?: string }
   | {
       op: "add_arc";
@@ -150,7 +150,7 @@ export function applyOps(doc: CadDocument, ops: Op[], ctx: ApplyContext): ApplyR
             { x: c.x + op.width, y: c.y + op.height },
             { x: c.x, y: c.y + op.height },
           ];
-          const e: Entity = { id: newId(), type: "polyline", layer, color, points: pts, closed: true };
+          const e: Entity = { id: newId(), type: "polyline", layer, color, points: pts, closed: true, fill: op.fill };
           doc.add(e);
           created.push(e.id);
           break;
