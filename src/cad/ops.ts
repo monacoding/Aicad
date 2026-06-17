@@ -25,7 +25,7 @@ export type Selector = "all" | "selected" | "last" | { layer: string };
 
 export type Op =
   | { op: "add_line"; a: XY; b: XY; layer?: string; color?: string }
-  | { op: "add_polyline"; points: XY[]; closed?: boolean; layer?: string; color?: string }
+  | { op: "add_polyline"; points: XY[]; closed?: boolean; layer?: string; color?: string; lineType?: "solid" | "dashed" | "dotted" | "phantom" }
   | { op: "add_rectangle"; corner: XY; width: number; height: number; layer?: string; color?: string; fill?: string }
   | { op: "add_circle"; center: XY; radius: number; layer?: string; color?: string }
   | {
@@ -137,6 +137,7 @@ export function applyOps(doc: CadDocument, ops: Op[], ctx: ApplyContext): ApplyR
             color,
             points: op.points.map(xy),
             closed: !!op.closed,
+            lineType: op.lineType,
           };
           doc.add(e);
           created.push(e.id);

@@ -5,7 +5,7 @@
 // Claude path is used instead (and is far more flexible).
 import { Op, XY } from "./ops";
 import { SymbolName } from "./pid";
-import { buildBallastSystem } from "./templates";
+import { buildBallastSystem, buildLngcBallastSystem } from "./templates";
 
 export interface LocalResult {
   ops: Op[];
@@ -84,6 +84,8 @@ function clause(text: string): Op[] {
     return [{ op: "clear" }];
 
   // system templates (learned diagrams)
+  if ((has(s, "발라스트", "밸러스트", "평형수") || /ballast/i.test(s)) && /174|lngc|lng|운반선|carrier/i.test(s))
+    return buildLngcBallastSystem();
   if (has(s, "발라스트", "밸러스트", "평형수") || /ballast/i.test(s)) return buildBallastSystem();
 
   // layer
