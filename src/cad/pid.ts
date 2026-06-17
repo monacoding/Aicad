@@ -198,9 +198,16 @@ export function makeSymbol(name: SymbolName, opts: SymbolOpts): Entity[] {
 }
 
 /** A pipe run: a heavier solid polyline on the "process" layer. */
-export function makePipe(points: Vec2[], layer = "process", width = 1.8, size?: string, service?: string): Entity[] {
+export function makePipe(
+  points: Vec2[],
+  layer = "process",
+  width = 1.8,
+  size?: string,
+  service?: string,
+  tag?: string,
+): Entity[] {
   if (points.length < 2) return [];
-  return [{ id: newId(), type: "polyline", layer, points, closed: false, width, kind: "pipe", size, service }];
+  return [{ id: newId(), type: "polyline", layer, points, closed: false, width, kind: "pipe", size, service, tag }];
 }
 
 /** An instrument signal line (dashed, thin). */

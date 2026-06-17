@@ -30,20 +30,29 @@ export interface SystemSpec {
 }
 
 // ---- shared low-level emit helpers ----------------------------------------
-function makeEmit(service = "", size = "DN250") {
+function makeEmit(service = "", size = "DN250", code = "P") {
   const ops: Op[] = [];
+  let lineNo = 0;
   const api = {
     ops,
     text: (at: XY, t: string, h = 0.6, layer = "0", color?: string) =>
       ops.push({ op: "add_text", at, text: t, height: h, layer, color }),
-    pipe: (points: XY[]) => ops.push({ op: "add_pipe", points, service, size }),
+    // auto line number: <service code>-<seq>-<size>, e.g. FM-001-DN250
+    pipe: (points: XY[]) =>
+      ops.push({ op: "add_pipe", points, service, size, tag: `${code}-${String(++lineNo).padStart(3, "0")}-${size}` }),
     signal: (a: XY, b: XY) => ops.push({ op: "add_signal", a, b }),
     rect: (corner: XY, w: number, h: number, color: string, fill?: string, layer = EQ) =>
       ops.push({ op: "add_rectangle", corner, width: w, height: h, layer, color, fill }),
-    sym: (symbol: string, at: XY, o: Partial<{ scale: number; rotation: number; tag: string; layer: string }> = {}) =>
-      ops.push({ op: "add_symbol", symbol, at, scale: o.scale ?? 1, rotation: o.rotation ?? 0, tag: o.tag, layer: o.layer ?? EQ, service }),
+    sym: (symbol: string, at: XY, o: Partial<{ scale: number; rotation: number; tag: string; layer: string; size: string }> = {}) =>
+      ops.push({ op: "add_symbol", symbol, at, scale: o.scale ?? 1, rotation: o.rotation ?? 0, tag: o.tag, layer: o.layer ?? EQ, service, size: o.size ?? size }),
   };
   return api;
+}
+
+/** Short service code from a system title (initials), e.g. "FIRE MAIN (SEA WATER)" -> "FMSW". */
+function serviceCode(en: string): string {
+  const letters = en.replace(/[^A-Za-z ]/g, " ").split(/\s+/).filter(Boolean);
+  return letters.map((w) => w[0]).join("").slice(0, 4).toUpperCase() || "P";
 }
 
 /** Draw a component on the header at (x,0): a symbol, or a labelled box. */
@@ -66,7 +75,7 @@ const TANK_H = 3.4;
 
 /** Build a horizontal-flow P&ID from a spec with automatic, collision-free spacing. */
 export function buildLinearSystem(spec: SystemSpec): Op[] {
-  const api = makeEmit(spec.en);
+  const api = makeEmit(spec.en, "DN250", serviceCode(spec.en));
   const n = spec.inline.length;
   const left = 0;
   const xs = spec.inline.map((_, i) => left + (i + 1) * SPACING);
@@ -115,7 +124,7 @@ export function buildLinearSystem(spec: SystemSpec): Op[] {
     branches.forEach((b, i) => {
       const x = pickGap(i);
       api.pipe([[x, 0], [x, -3.6]]);
-      api.sym("butterfly_valve", [x, -1.8], { scale: 0.8, rotation: 90, tag: b.tag });
+      api.sym("butterfly_valve", [x, -1.8], { scale: 0.8, rotation: 90, tag: b.tag, size: "DN100" });
       const cy = -6.6;
       api.rect([x - TANK_W / 2, cy - TANK_H / 2], TANK_W, TANK_H, "#5cc8ff", "#5cc8ff18");
       api.text([x - TANK_W / 2 + 0.2, cy - TANK_H / 2 - 0.9], b.label, 0.5);

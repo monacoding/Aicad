@@ -79,7 +79,7 @@ export type Op =
       size?: string;
       service?: string;
     }
-  | { op: "add_pipe"; points: XY[]; layer?: string; size?: string; service?: string }
+  | { op: "add_pipe"; points: XY[]; layer?: string; size?: string; service?: string; tag?: string }
   | { op: "add_signal"; a: XY; b: XY; layer?: string }
   | { op: "set_layer"; name: string; color?: string; visible?: boolean; current?: boolean }
   | { op: "clear" };
@@ -361,7 +361,7 @@ export function applyOps(doc: CadDocument, ops: Op[], ctx: ApplyContext): ApplyR
         case "add_pipe": {
           const lyr = op.layer ?? "process";
           doc.ensureLayer(lyr, "#7bd88f");
-          const es = makePipe(op.points.map(xy), lyr, 1.8, op.size, op.service) as Entity[];
+          const es = makePipe(op.points.map(xy), lyr, 1.8, op.size, op.service, op.tag) as Entity[];
           doc.add(...es);
           es.forEach((e) => created.push(e.id));
           break;
