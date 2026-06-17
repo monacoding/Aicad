@@ -12,15 +12,17 @@ const PORT = process.env.PORT || 8787;
 const MODEL = process.env.AICAD_MODEL || "claude-opus-4-8";
 const API_KEY = process.env.ANTHROPIC_API_KEY;
 const AUTH_TOKEN = process.env.ANTHROPIC_AUTH_TOKEN;
+const BASE_URL = process.env.ANTHROPIC_BASE_URL; // optional local gateway/proxy
 
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: "1mb" }));
 
-const client =
-  API_KEY || AUTH_TOKEN
-    ? new Anthropic(API_KEY ? { apiKey: API_KEY } : { authToken: AUTH_TOKEN })
-    : null;
+const clientOpts = {};
+if (API_KEY) clientOpts.apiKey = API_KEY;
+else if (AUTH_TOKEN) clientOpts.authToken = AUTH_TOKEN;
+if (BASE_URL) clientOpts.baseURL = BASE_URL;
+const client = API_KEY || AUTH_TOKEN ? new Anthropic(clientOpts) : null;
 
 const SYSTEM_PROMPT = `You are the drawing engine of AiCAD, a 2D CAD program. You translate a user's
 natural-language request into a precise list of drawing operations.
@@ -77,8 +79,59 @@ P&ID / ship process diagrams:
   and pressure/flow/level instruments with signal lines.`;
 
 app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, model: MODEL, configured: !!client });
+  res.json({
+    ok: true,
+    model: MODEL,
+    configured: !!client,
+    auth: API_KEY ? "api_key" : AUTH_TOKEN ? "auth_token" : "none",
+    baseURL: BASE_URL ?? "https://api.anthropic.com",
+  });
 });
+
+function textFrom(message) {
+  const block = message.content.find((b) => b.type === "text");
+  return block && "text" in block ? block.text : "";
+}
+
+/** Strip ```json fences and parse the first JSON object in the text. */
+function parseOps(text) {
+  let t = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/```$/i, "").trim();
+  try {
+    return JSON.parse(t);
+  } catch {
+    const m = t.match(/\{[\s\S]*\}/);
+    if (m) return JSON.parse(m[0]);
+    throw new Error("no JSON found");
+  }
+}
+
+// Primary call uses structured output + adaptive thinking. If the account/model
+// rejects those features, fall back to a plain prompt that asks for JSON only.
+async function callClaude(userContent) {
+  try {
+    const stream = client.messages.stream({
+      model: MODEL,
+      max_tokens: 8000,
+      thinking: { type: "adaptive" },
+      output_config: { effort: "medium", format: { type: "json_schema", schema: opSchema } },
+      system: SYSTEM_PROMPT,
+      messages: [{ role: "user", content: userContent }],
+    });
+    const message = await stream.finalMessage();
+    if (message.stop_reason === "refusal") throw Object.assign(new Error("refusal"), { refusal: true });
+    return { mode: "structured", text: textFrom(message) };
+  } catch (err) {
+    if (err?.refusal) throw err;
+    // retry without structured output / thinking for maximum compatibility
+    const message = await client.messages.create({
+      model: MODEL,
+      max_tokens: 8000,
+      system: SYSTEM_PROMPT + "\n\nRespond with ONLY the JSON object, no prose, no code fences.",
+      messages: [{ role: "user", content: userContent }],
+    });
+    return { mode: "compat", text: textFrom(message) };
+  }
+}
 
 app.post("/api/nl", async (req, res) => {
   const { prompt, context } = req.body ?? {};
@@ -88,48 +141,25 @@ app.post("/api/nl", async (req, res) => {
   if (!client) {
     return res.json({
       ops: [],
-      error:
-        "Claude API 키가 설정되지 않았습니다. 서버에 ANTHROPIC_API_KEY 환경변수를 설정한 뒤 다시 시도하세요.",
+      error: "Claude API 키가 설정되지 않았습니다. .env에 ANTHROPIC_API_KEY를 넣고 서버를 재시작하세요.",
     });
   }
 
   const userContent =
-    `현재 도면 컨텍스트(JSON):\n${JSON.stringify(context ?? {}, null, 0)}\n\n` +
-    `사용자 요청:\n${prompt}`;
+    `현재 도면 컨텍스트(JSON):\n${JSON.stringify(context ?? {}, null, 0)}\n\n사용자 요청:\n${prompt}`;
 
   try {
-    const stream = client.messages.stream({
-      model: MODEL,
-      max_tokens: 8000,
-      thinking: { type: "adaptive" },
-      output_config: {
-        effort: "medium",
-        format: { type: "json_schema", schema: opSchema },
-      },
-      system: SYSTEM_PROMPT,
-      messages: [{ role: "user", content: userContent }],
-    });
-
-    const message = await stream.finalMessage();
-
-    if (message.stop_reason === "refusal") {
-      return res.json({ ops: [], error: "요청이 정책에 의해 거부되었습니다." });
-    }
-
-    const textBlock = message.content.find((b) => b.type === "text");
-    if (!textBlock || !("text" in textBlock)) {
-      return res.json({ ops: [], error: "모델이 유효한 응답을 반환하지 않았습니다." });
-    }
-
+    const { mode, text } = await callClaude(userContent);
+    if (!text) return res.json({ ops: [], error: "모델이 빈 응답을 반환했습니다." });
     let parsed;
     try {
-      parsed = JSON.parse(textBlock.text);
+      parsed = parseOps(text);
     } catch {
       return res.json({ ops: [], error: "응답 JSON 파싱에 실패했습니다." });
     }
-
-    return res.json({ ops: parsed.ops ?? [], note: parsed.note });
+    return res.json({ ops: parsed.ops ?? [], note: parsed.note, mode });
   } catch (err) {
+    if (err?.refusal) return res.json({ ops: [], error: "요청이 정책에 의해 거부되었습니다." });
     console.error("NL error:", err);
     const status = err?.status ?? 500;
     return res.status(500).json({ ops: [], error: `모델 호출 오류 (${status}): ${err?.message ?? err}` });
@@ -137,5 +167,7 @@ app.post("/api/nl", async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`AiCAD API listening on :${PORT} (model: ${MODEL}, configured: ${!!client})`);
+  console.log(
+    `AiCAD API on :${PORT}  model=${MODEL}  configured=${!!client}  baseURL=${BASE_URL ?? "default"}`,
+  );
 });

@@ -12,6 +12,24 @@ export interface NlResponse {
   error?: string;
 }
 
+export interface NlHealth {
+  configured: boolean;
+  model: string;
+  auth?: string;
+  baseURL?: string;
+}
+
+/** Ask the backend whether a Claude key is configured (for the UI badge). */
+export async function nlHealth(): Promise<NlHealth | null> {
+  try {
+    const res = await fetch("/api/health");
+    if (!res.ok) return null;
+    return (await res.json()) as NlHealth;
+  } catch {
+    return null;
+  }
+}
+
 function buildContext(engine: CadEngine) {
   const doc = engine.doc;
   const bb = doc.bounds();

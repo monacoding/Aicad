@@ -168,6 +168,25 @@ canvas {
   color: var(--muted);
 }
 
+.nl-badge {
+  float: right;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  cursor: default;
+}
+.nl-badge.on {
+  color: #07223f;
+  background: #7bd88f;
+  border-color: #7bd88f;
+}
+.nl-badge.off {
+  color: var(--muted);
+  background: var(--panel-2);
+}
+
 .nl textarea {
   width: 100%;
   resize: vertical;

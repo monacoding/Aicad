@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { CadEngine, EngineUiState, ToolName } from "./cad/engine";
 import { runCommand } from "./cad/commands";
-import { runNaturalLanguage } from "./cad/nl";
+import { runNaturalLanguage, nlHealth, type NlHealth } from "./cad/nl";
 import { exportDXF, importDXF } from "./cad/dxf";
 import { extractBom, toCSV, type ValveRow, type PipeRow, type ItemRow } from "./cad/bom";
 
@@ -249,12 +249,21 @@ function NlPanel({ engine }: { engine: () => CadEngine }) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<{ msg: string; kind: "ok" | "err" | "" }>({ msg: "", kind: "" });
+  const [health, setHealth] = useState<NlHealth | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    nlHealth().then((h) => alive && setHealth(h));
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const run = useCallback(async () => {
     const prompt = text.trim();
     if (!prompt || busy) return;
     setBusy(true);
-    setStatus({ msg: "Claude가 도면을 생성 중…", kind: "" });
+    setStatus({ msg: health?.configured ? "Claude가 도면을 생성 중…" : "로컬 해석 중…", kind: "" });
     try {
       const res = await runNaturalLanguage(engine(), prompt);
       if (res.error) {
@@ -271,11 +280,24 @@ function NlPanel({ engine }: { engine: () => CadEngine }) {
     } finally {
       setBusy(false);
     }
-  }, [text, busy, engine]);
+  }, [text, busy, engine, health]);
 
+  const connected = !!health?.configured;
   return (
     <section className="nl">
-      <h3>자연어로 그리기 (Claude)</h3>
+      <h3>
+        자연어로 그리기
+        <span
+          className={`nl-badge ${connected ? "on" : "off"}`}
+          title={
+            connected
+              ? `Claude 연결됨 · ${health?.model}${health?.baseURL && !health.baseURL.includes("api.anthropic.com") ? ` · ${health.baseURL}` : ""}`
+              : "API 키 미설정 — 로컬 해석기로 동작 (.env에 ANTHROPIC_API_KEY 설정)"
+          }
+        >
+          {connected ? `● Claude (${health?.model})` : "○ 로컬 모드"}
+        </span>
+      </h3>
       <textarea
         value={text}
         placeholder="예) 반지름 5인 원을 원점에 그리고 그 안에 정사각형을 넣어줘"

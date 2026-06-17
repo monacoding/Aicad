@@ -81,10 +81,26 @@ cp .env.example .env          # ANTHROPIC_API_KEY 입력
 npm run dev                   # 프론트(:5173) + API(:8787) 동시 기동
 ```
 
-자연어 기능은 키가 있으면 Claude가 처리하고, **키가 없으면 내장 로컬 해석기**(오프라인
-폴백, `src/cad/nlLocal.ts`)가 기본 작도/편집/P&ID 요청을 처리합니다. 그리기 도구·명령행·
-DXF 등 나머지 CAD 기능은 키와 무관하게 동작합니다. 자연어 테스트: `npx tsx scripts/nltest.mts`
-(110개 프롬프트, 결과는 `docs/NL_TEST_REPORT.md`).
+### Claude API 연결 (자연어 그리기)
+
+자연어 패널은 **서버(`server/index.js`)를 통해 Claude API**를 호출합니다(키는 서버에만
+보관, 브라우저로 노출되지 않음). 연결하려면 프로젝트 루트에 `.env`를 만들고:
+
+```bash
+cp .env.example .env
+# .env 안에:
+ANTHROPIC_API_KEY=sk-ant-...        # 본인 Anthropic API 키
+# AICAD_MODEL=claude-opus-4-8        # (선택) 모델 변경
+# ANTHROPIC_BASE_URL=http://localhost:8082   # (선택) 로컬 게이트웨이/프록시 사용 시
+```
+
+그런 다음 `npm run dev`로 재시작하면 자연어 패널 우측 배지가 **● Claude (모델명)** 으로
+바뀝니다. 키가 없으면 **○ 로컬 모드**로 표시되고 내장 로컬 해석기(`src/cad/nlLocal.ts`)가
+기본 작도/편집/P&ID·시스템 템플릿 요청을 처리합니다. 연결 상태는 `GET /api/health`로도
+확인할 수 있습니다. (구조화 출력/thinking 미지원 환경에서는 자동으로 일반 JSON 모드로
+폴백합니다.) 그리기 도구·명령행·DXF 등 나머지 CAD 기능은 키와 무관하게 동작합니다.
+
+자연어 테스트: `npx tsx scripts/nltest.mts` (110개 프롬프트, `docs/NL_TEST_REPORT.md`).
 
 빌드:
 
