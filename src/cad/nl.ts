@@ -33,6 +33,8 @@ function summarize(e: Entity): string {
       return `circle c=${fmt(e.center)} r=${e.radius}`;
     case "arc":
       return `arc c=${fmt(e.center)} r=${e.radius}`;
+    case "ellipse":
+      return `ellipse c=${fmt(e.center)} rx=${e.rx} ry=${e.ry}`;
     case "polyline":
       return `polyline ${e.points.length}pts${e.closed ? " closed" : ""}`;
     case "text":

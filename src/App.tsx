@@ -4,30 +4,41 @@ import { runCommand } from "./cad/commands";
 import { runNaturalLanguage } from "./cad/nl";
 import { exportDXF, importDXF } from "./cad/dxf";
 
-const TOOLS: { name: ToolName; label: string; key?: string }[] = [
+const TOOLS: { name: ToolName; label: string; key?: string; sep?: boolean }[] = [
   { name: "select", label: "선택", key: "S" },
-  { name: "line", label: "선", key: "L" },
+  { name: "line", label: "선", key: "L", sep: true },
   { name: "polyline", label: "폴리", key: "PL" },
   { name: "rectangle", label: "사각", key: "REC" },
   { name: "circle", label: "원", key: "C" },
   { name: "arc", label: "호", key: "A" },
+  { name: "ellipse", label: "타원", key: "EL" },
   { name: "point", label: "점", key: "PT" },
   { name: "text", label: "문자", key: "T" },
   { name: "dimension", label: "치수", key: "DIM" },
-  { name: "move", label: "이동", key: "M" },
+  { name: "move", label: "이동", key: "M", sep: true },
   { name: "copy", label: "복사", key: "CO" },
   { name: "rotate", label: "회전", key: "RO" },
   { name: "scale", label: "축척", key: "SC" },
+  { name: "mirror", label: "대칭", key: "MI" },
+  { name: "offset", label: "간격", key: "O" },
+  { name: "trim", label: "자름", key: "TR" },
+  { name: "extend", label: "연장", key: "EX" },
+  { name: "fillet", label: "모깎", key: "F" },
+  { name: "chamfer", label: "모따", key: "CHA" },
+  { name: "hatch", label: "채움", key: "H" },
   { name: "erase", label: "지움", key: "E" },
+  { name: "measure", label: "거리", key: "ME", sep: true },
 ];
 
 const EXAMPLES = [
   "원점에 가로 10 세로 5 사각형",
-  "중심 5,5 반지름 3 원",
   "반지름 4 정육각형 그려줘",
   "간단한 집 도면 그려줘",
-  "선택한 것 전부 오른쪽으로 10 이동",
-  "치수선 추가: 0,0 에서 10,0",
+  "반지름 10 원에 구멍 8개 원형 배열",
+  "선택한 도형 Y축 기준으로 대칭 복사",
+  "5×3 격자, 간격 2",
+  "선택한 도형 0.5만큼 바깥으로 간격띄우기",
+  "가로 6 세로 3 타원을 원점에",
 ];
 
 export function App() {
@@ -148,9 +159,9 @@ function TopBar({ engine }: { engine: () => CadEngine }) {
 function Toolbar({ tool, onPick }: { tool?: ToolName; onPick: (t: ToolName) => void }) {
   return (
     <div className="toolbar">
-      {TOOLS.map((t, i) => (
+      {TOOLS.map((t) => (
         <span key={t.name}>
-          {(i === 1 || i === 9) && <div className="sep" />}
+          {t.sep && <div className="sep" />}
           <button
             className={`tool ${tool === t.name ? "active" : ""}`}
             title={`${t.label} (${t.key})`}
@@ -168,8 +179,60 @@ function Side({ engine, ui }: { engine: () => CadEngine; ui: EngineUiState | nul
   return (
     <div className="side">
       <NlPanel engine={engine} />
+      <PropertiesPanel engine={engine} ui={ui} />
       <LayerPanel engine={engine} ui={ui} />
     </div>
+  );
+}
+
+function PropertiesPanel({ engine, ui }: { engine: () => CadEngine; ui: EngineUiState | null }) {
+  void ui; // re-renders when engine UI state changes (selection count etc.)
+  const e = engine();
+  const selected = e.doc.entities.filter((x) => e.selection.has(x.id));
+  const types = [...new Set(selected.map((s) => s.type))];
+
+  const setColor = (color: string) =>
+    e.doc.transact(() => selected.forEach((s) => e.doc.replace(s.id, { ...s, color })));
+  const setFill = (fill: string | undefined) =>
+    e.doc.transact(() =>
+      selected.forEach((s) => {
+        if (s.type === "circle" || s.type === "ellipse" || (s.type === "polyline" && s.closed))
+          e.doc.replace(s.id, { ...s, fill });
+      }),
+    );
+
+  return (
+    <section>
+      <h3>속성</h3>
+      {selected.length === 0 ? (
+        <div style={{ color: "var(--muted)" }}>선택된 객체 없음</div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <div>
+            선택 <b>{selected.length}</b>개 · {types.join(", ")}
+          </div>
+          <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            색상
+            <input
+              type="color"
+              defaultValue={selected[0].color ?? "#e6e6e6"}
+              onChange={(ev) => setColor(ev.target.value)}
+            />
+          </label>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button className="btn" onClick={() => setFill("#4da3ff55")}>
+              채우기
+            </button>
+            <button className="btn" onClick={() => setFill(undefined)}>
+              채움 해제
+            </button>
+            <button className="btn" onClick={() => engine().deleteSelection()}>
+              삭제
+            </button>
+          </div>
+        </div>
+      )}
+    </section>
   );
 }
 

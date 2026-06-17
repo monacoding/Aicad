@@ -9,6 +9,7 @@ const TOOLS: ToolName[] = [
   "rectangle",
   "circle",
   "arc",
+  "ellipse",
   "point",
   "text",
   "dimension",
@@ -16,6 +17,14 @@ const TOOLS: ToolName[] = [
   "copy",
   "rotate",
   "scale",
+  "mirror",
+  "offset",
+  "fillet",
+  "chamfer",
+  "trim",
+  "extend",
+  "hatch",
+  "measure",
   "erase",
 ];
 
@@ -26,6 +35,7 @@ const ALIASES: Record<string, ToolName> = {
   rect: "rectangle",
   c: "circle",
   a: "arc",
+  el: "ellipse",
   pt: "point",
   t: "text",
   dim: "dimension",
@@ -34,15 +44,62 @@ const ALIASES: Record<string, ToolName> = {
   cp: "copy",
   ro: "rotate",
   sc: "scale",
+  mi: "mirror",
+  o: "offset",
+  f: "fillet",
+  cha: "chamfer",
+  tr: "trim",
+  ex: "extend",
+  h: "hatch",
+  me: "measure",
   e: "erase",
   s: "select",
 };
 
-/** Parse "x,y" or "x y" into [x, y]. */
-function pt(tok: string): [number, number] | null {
-  const m = tok.split(/[, ]+/).map(Number);
-  if (m.length >= 2 && m.every((n) => Number.isFinite(n))) return [m[0], m[1]];
+/**
+ * Parse a coordinate token relative to `last`. Supports:
+ *   "x,y"        absolute cartesian
+ *   "@dx,dy"     relative cartesian (from last point)
+ *   "d<a"        absolute polar (distance d, angle a° from origin)
+ *   "@d<a"       relative polar (from last point)
+ */
+function parsePoint(tok: string, last: { x: number; y: number }): [number, number] | null {
+  let rel = false;
+  let s = tok;
+  if (s.startsWith("@")) {
+    rel = true;
+    s = s.slice(1);
+  }
+  if (s.includes("<")) {
+    const [d, a] = s.split("<").map(Number);
+    if (!Number.isFinite(d) || !Number.isFinite(a)) return null;
+    const base = rel ? last : { x: 0, y: 0 };
+    const r = (a * Math.PI) / 180;
+    return [base.x + d * Math.cos(r), base.y + d * Math.sin(r)];
+  }
+  const parts = s.split(",").map(Number);
+  if (parts.length >= 2 && parts.every(Number.isFinite)) {
+    return rel ? [last.x + parts[0], last.y + parts[1]] : [parts[0], parts[1]];
+  }
   return null;
+}
+
+/** Single absolute/polar point (no relative context). */
+function pt(tok: string): [number, number] | null {
+  return parsePoint(tok, { x: 0, y: 0 });
+}
+
+/** Parse a sequence of points, threading each as the next "last" for @/polar. */
+function parseSequence(toks: string[]): [number, number][] {
+  const out: [number, number][] = [];
+  let last = { x: 0, y: 0 };
+  for (const tk of toks) {
+    const p = parsePoint(tk, last);
+    if (!p) break;
+    out.push(p);
+    last = { x: p[0], y: p[1] };
+  }
+  return out;
 }
 
 function tokenize(line: string): string[] {
@@ -92,10 +149,10 @@ export function runCommand(engine: CadEngine, raw: string): CommandResult {
     switch (cmd) {
       case "line":
       case "l": {
-        const a = pt(rest[0]);
-        const b = pt(rest[1]);
-        if (a && b) ops.push({ op: "add_line", a, b });
-        else return startTool();
+        const seq = parseSequence(rest);
+        if (seq.length >= 2) {
+          for (let i = 0; i < seq.length - 1; i++) ops.push({ op: "add_line", a: seq[i], b: seq[i + 1] });
+        } else return startTool();
         break;
       }
       case "circle":
@@ -134,8 +191,10 @@ export function runCommand(engine: CadEngine, raw: string): CommandResult {
       }
       case "polyline":
       case "pl": {
-        const points = rest.map(pt).filter((p): p is [number, number] => !!p);
-        if (points.length >= 2) ops.push({ op: "add_polyline", points });
+        const closed = rest[rest.length - 1]?.toLowerCase() === "close";
+        const pointToks = closed ? rest.slice(0, -1) : rest;
+        const points = parseSequence(pointToks);
+        if (points.length >= 2) ops.push({ op: "add_polyline", points, closed });
         else return startTool();
         break;
       }
@@ -186,6 +245,75 @@ export function runCommand(engine: CadEngine, raw: string): CommandResult {
         else return startTool();
         break;
       }
+      case "ellipse":
+      case "el": {
+        const center = pt(rest[0]);
+        const rx = Number(rest[1]);
+        const ry = Number(rest[2]);
+        const rot = Number(rest[3]);
+        if (center && Number.isFinite(rx) && Number.isFinite(ry))
+          ops.push({ op: "add_ellipse", center, rx, ry, rotation: Number.isFinite(rot) ? rot : 0 });
+        else return startTool();
+        break;
+      }
+      case "mirror":
+      case "mi": {
+        const a = pt(rest[0]);
+        const b = pt(rest[1]);
+        if (a && b) ops.push({ op: "mirror", selector: "selected", a, b, keepOriginal: true });
+        else return startTool();
+        break;
+      }
+      case "offset":
+      case "o": {
+        const d = Number(rest[0]);
+        if (Number.isFinite(d)) ops.push({ op: "offset", selector: "selected", distance: d });
+        else return startTool();
+        break;
+      }
+      case "arrayrect":
+      case "ar": {
+        const rows = Number(rest[0]);
+        const cols = Number(rest[1]);
+        const dx = Number(rest[2]);
+        const dy = Number(rest[3]);
+        if ([rows, cols, dx, dy].every(Number.isFinite))
+          ops.push({ op: "array_rect", selector: "selected", rows, cols, dx, dy });
+        else return { ok: false, message: "사용법: ARRAYRECT <행> <열> <dx> <dy>" };
+        break;
+      }
+      case "arraypolar":
+      case "ap": {
+        const center = pt(rest[0]);
+        const count = Number(rest[1]);
+        const ang = Number(rest[2]);
+        if (center && Number.isFinite(count))
+          ops.push({ op: "array_polar", selector: "selected", center, count, angle: Number.isFinite(ang) ? ang : 360 });
+        else return { ok: false, message: "사용법: ARRAYPOLAR <cx,cy> <개수> [각도]" };
+        break;
+      }
+      case "fillet":
+      case "f": {
+        const r = Number(rest[0]);
+        if (Number.isFinite(r)) engine.filletRadius = r;
+        engine.setTool("fillet");
+        return { ok: true, message: `모깎기 r=${engine.filletRadius} — 선 두 개를 클릭` };
+      }
+      case "chamfer":
+      case "cha": {
+        const d = Number(rest[0]);
+        if (Number.isFinite(d)) engine.chamferDist = d;
+        engine.setTool("chamfer");
+        return { ok: true, message: `모따기 d=${engine.chamferDist} — 선 두 개를 클릭` };
+      }
+      case "hatch":
+      case "h":
+        if (engine.selection.size) {
+          ops.push({ op: "hatch", selector: "selected" });
+        } else {
+          return startTool();
+        }
+        break;
       case "delete":
       case "erase":
       case "e":

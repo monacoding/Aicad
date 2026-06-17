@@ -56,6 +56,24 @@ function entityToDXF(e: Entity): string {
         g(50, deg(e.startAngle)) +
         g(51, deg(e.endAngle))
       );
+    case "ellipse": {
+      const mx = e.rx * Math.cos(e.rotation);
+      const my = e.rx * Math.sin(e.rotation);
+      const ratio = e.rx !== 0 ? e.ry / e.rx : 1;
+      return (
+        g(0, "ELLIPSE") +
+        g(8, layer) +
+        g(10, e.center.x) +
+        g(20, e.center.y) +
+        g(30, 0) +
+        g(11, mx) +
+        g(21, my) +
+        g(31, 0) +
+        g(40, ratio) +
+        g(41, 0) +
+        g(42, Math.PI * 2)
+      );
+    }
     case "point":
       return g(0, "POINT") + g(8, layer) + g(10, e.at.x) + g(20, e.at.y) + g(30, 0);
     case "text":
@@ -163,6 +181,22 @@ export function importDXF(text: string): ImportResult {
           endAngle: rad(num(51)),
         });
         break;
+      case "ELLIPSE": {
+        const mx = num(11);
+        const my = num(21);
+        const rx = Math.hypot(mx, my);
+        const ratio = num(40, 0, 1);
+        entities.push({
+          id: newId(),
+          type: "ellipse",
+          layer,
+          center: { x: num(10), y: num(20) },
+          rx,
+          ry: rx * ratio,
+          rotation: Math.atan2(my, mx),
+        });
+        break;
+      }
       case "POINT":
         entities.push({ id: newId(), type: "point", layer, at: { x: num(10), y: num(20) } });
         break;

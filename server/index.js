@@ -31,8 +31,9 @@ Coordinate system:
 - The origin (0,0) is a reasonable default anchor unless the drawing already has content.
 
 You output a JSON object: { "ops": [ ... ], "note": "<one short sentence in the user's language>" }.
-Each op is one of the documented shapes (add_line, add_polyline, add_rectangle, add_circle,
-add_arc, add_point, add_text, add_dimension, move, copy, rotate, scale, delete, set_layer, clear).
+Each op is one of the documented shapes: add_line, add_polyline, add_rectangle, add_circle,
+add_arc, add_ellipse, add_point, add_text, add_dimension, move, copy, rotate, scale, mirror,
+offset, array_rect, array_polar, hatch (fill), delete, set_layer, clear.
 
 Rules:
 - Produce real, buildable geometry. Compute exact coordinates yourself — never leave placeholders.
@@ -50,7 +51,13 @@ Examples:
 - "circle radius 3 centered at 5,5" -> add_circle center [5,5] radius 3.
 - "a hexagon with radius 4 at origin" -> add_polyline with 6 computed vertices, closed:true.
 - "move everything 10 to the right" -> move selector "all" delta [10,0].
-- "make a simple house" -> a closed polyline for walls + a polyline/triangle roof + a rectangle door.`;
+- "make a simple house" -> a closed polyline for walls + a polyline/triangle roof + a rectangle door.
+- "mirror the selection across the Y axis" -> mirror a [0,0] b [0,1].
+- "offset selected outward by 0.5" -> offset distance 0.5.
+- "5x3 grid spaced 2 apart" -> array_rect rows 3 cols 5 dx 2 dy 2.
+- "8 holes in a circle of radius 10" -> add_circle (hole) then array_polar center [0,0] count 8.
+- "fill the selected shape" -> hatch with an optional color.
+- "ellipse 6 wide 3 tall at origin" -> add_ellipse center [0,0] rx 3 ry 1.5.`;
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true, model: MODEL, configured: !!client });

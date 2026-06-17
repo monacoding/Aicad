@@ -1,7 +1,7 @@
 // Canvas 2D renderer: grid, entities, selection highlight, snap markers, preview.
 import { CadDocument } from "./document";
 import { Viewport } from "./viewport";
-import { Entity } from "./entities";
+import { Entity, ellipsePoint, snapPoints } from "./entities";
 import { Vec2 } from "./geometry";
 import { SnapResult } from "./snap";
 
@@ -41,6 +41,11 @@ export class Renderer {
 
     for (const e of st.preview) {
       this.drawEntity(e, "#ffd24d", false, false, true);
+    }
+
+    if (st.selection.size === 1) {
+      const sel = this.doc.entities.find((x) => st.selection.has(x.id));
+      if (sel) this.drawGrips(sel);
     }
 
     if (st.band) this.drawBand(st.band);
@@ -127,6 +132,12 @@ export class Renderer {
           else ctx.lineTo(s.x, s.y);
         });
         if (e.closed) ctx.closePath();
+        if (e.fill && e.closed) {
+          ctx.save();
+          ctx.fillStyle = e.fill;
+          ctx.fill();
+          ctx.restore();
+        }
         ctx.stroke();
         break;
       }
@@ -134,6 +145,29 @@ export class Renderer {
         const c = S(e.center);
         ctx.beginPath();
         ctx.arc(c.x, c.y, e.radius * vp.scale, 0, Math.PI * 2);
+        if (e.fill) {
+          ctx.save();
+          ctx.fillStyle = e.fill;
+          ctx.fill();
+          ctx.restore();
+        }
+        ctx.stroke();
+        break;
+      }
+      case "ellipse": {
+        ctx.beginPath();
+        const N = 72;
+        for (let i = 0; i <= N; i++) {
+          const s = S(ellipsePoint(e, (i / N) * 2 * Math.PI));
+          if (i === 0) ctx.moveTo(s.x, s.y);
+          else ctx.lineTo(s.x, s.y);
+        }
+        if (e.fill) {
+          ctx.save();
+          ctx.fillStyle = e.fill;
+          ctx.fill();
+          ctx.restore();
+        }
         ctx.stroke();
         break;
       }
@@ -214,6 +248,21 @@ export class Renderer {
     ctx.setLineDash(band.crossing ? [5, 4] : []);
     ctx.fillRect(x, y, w, h);
     ctx.strokeRect(x, y, w, h);
+    ctx.restore();
+  }
+
+  private drawGrips(e: Entity): void {
+    const { ctx, vp } = this;
+    ctx.save();
+    ctx.fillStyle = "#4da3ff";
+    ctx.strokeStyle = "#cfe6ff";
+    ctx.lineWidth = 1;
+    for (const sp of snapPoints(e)) {
+      if (sp.kind === "midpoint") continue;
+      const s = vp.toScreen(sp.p);
+      ctx.fillRect(s.x - 3.5, s.y - 3.5, 7, 7);
+      ctx.strokeRect(s.x - 3.5, s.y - 3.5, 7, 7);
+    }
     ctx.restore();
   }
 

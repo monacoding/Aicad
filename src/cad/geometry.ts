@@ -69,6 +69,22 @@ export function segSegIntersect(p1: Vec2, p2: Vec2, p3: Vec2, p4: Vec2): Vec2 | 
   return on(p1, p2) && on(p3, p4) ? pt : null;
 }
 
+/** Reflect point p across the infinite line through a and b. */
+export function reflectPoint(p: Vec2, a: Vec2, b: Vec2): Vec2 {
+  const ab = sub(b, a);
+  const len2 = dot(ab, ab) || 1;
+  const t = dot(sub(p, a), ab) / len2;
+  const proj = add(a, scale(ab, t));
+  return { x: 2 * proj.x - p.x, y: 2 * proj.y - p.y };
+}
+
+/** Unit perpendicular (left normal) of direction a->b. */
+export function leftNormal(a: Vec2, b: Vec2): Vec2 {
+  const d = sub(b, a);
+  const L = len(d) || 1;
+  return { x: -d.y / L, y: d.x / L };
+}
+
 export interface Bounds {
   min: Vec2;
   max: Vec2;

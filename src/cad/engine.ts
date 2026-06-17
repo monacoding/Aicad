@@ -7,13 +7,23 @@ import { findSnap, SnapResult, SnapSettings } from "./snap";
 import { Op, applyOps, ApplyContext } from "./ops";
 import {
   Entity,
+  LineEntity,
   distanceTo,
   entityBounds,
   translate,
   rotateEntity,
   scaleEntity,
 } from "./entities";
-import { Vec2, dist, angle as angleBetween, pointInBounds, boundsValid } from "./geometry";
+import { Vec2, dist, dot, sub, angle as angleBetween, leftNormal, pointInBounds, boundsValid } from "./geometry";
+import {
+  mirrorEntity,
+  offsetEntity,
+  filletLines,
+  chamferLines,
+  trimLine,
+  extendLine,
+  entitySegments,
+} from "./geomops";
 
 export type ToolName =
   | "select"
@@ -22,6 +32,7 @@ export type ToolName =
   | "rectangle"
   | "circle"
   | "arc"
+  | "ellipse"
   | "point"
   | "text"
   | "dimension"
@@ -29,6 +40,14 @@ export type ToolName =
   | "copy"
   | "rotate"
   | "scale"
+  | "mirror"
+  | "offset"
+  | "fillet"
+  | "chamfer"
+  | "trim"
+  | "extend"
+  | "hatch"
+  | "measure"
   | "erase";
 
 interface Tool {
@@ -82,6 +101,13 @@ export class CadEngine {
   private panning = false;
   private panLast: Vec2 | null = null;
   private bandStart: Vec2 | null = null;
+
+  /** Settings for fillet/chamfer (set via command, e.g. FILLET 0.5). */
+  filletRadius = 0.5;
+  chamferDist = 0.5;
+
+  /** Active grip drag in the select tool. */
+  private gripDrag: { id: string; setter: (e: Entity, p: Vec2) => Entity } | null = null;
 
   private uiListeners = new Set<(s: EngineUiState) => void>();
 
@@ -256,7 +282,12 @@ export class CadEngine {
     const world = this.snappedCursor(this.vp.toWorld(sp));
 
     if (this.toolName === "select") {
-      this.bandStart = sp;
+      const grip = this.pickGrip(world);
+      if (grip) {
+        this.gripDrag = grip;
+      } else {
+        this.bandStart = sp;
+      }
     } else {
       this.tool.click(world);
       this.preview = this.tool.preview();
@@ -276,7 +307,10 @@ export class CadEngine {
     this.cursorWorld = world;
 
     if (this.toolName === "select") {
-      if (this.bandStart) {
+      if (this.gripDrag) {
+        const ent = this.doc.entities.find((x) => x.id === this.gripDrag!.id);
+        if (ent) this.preview = [{ ...this.gripDrag.setter(ent, world), id: "prev" } as Entity];
+      } else if (this.bandStart) {
         const crossing = sp.x < this.bandStart.x;
         this.band = { from: this.bandStart, to: sp, crossing };
       } else {
@@ -294,6 +328,20 @@ export class CadEngine {
     if (this.panning) {
       this.panning = false;
       this.panLast = null;
+      return;
+    }
+    if (this.toolName === "select" && this.gripDrag) {
+      const sp = this.screenPos(e);
+      const world = this.snappedCursor(this.vp.toWorld(sp));
+      const drag = this.gripDrag;
+      this.doc.transact(() => {
+        const ent = this.doc.entities.find((x) => x.id === drag.id);
+        if (ent) this.doc.replace(drag.id, drag.setter(ent, world));
+      });
+      this.gripDrag = null;
+      this.preview = [];
+      this.scheduleRender();
+      this.emitUi();
       return;
     }
     if (this.toolName === "select" && this.bandStart) {
@@ -338,6 +386,7 @@ export class CadEngine {
       this.selection.clear();
       this.band = null;
       this.bandStart = null;
+      this.gripDrag = null;
       this.scheduleRender();
       this.emitUi();
     } else if (e.key === "Enter") {
@@ -372,6 +421,81 @@ export class CadEngine {
     return best;
   }
 
+  /** Editable grips for an entity: a handle point + a setter that applies a drag. */
+  private grips(e: Entity): { p: Vec2; setter: (en: Entity, p: Vec2) => Entity }[] {
+    switch (e.type) {
+      case "line":
+        return [
+          { p: e.a, setter: (en, p) => ({ ...(en as LineEntity), a: p }) },
+          { p: e.b, setter: (en, p) => ({ ...(en as LineEntity), b: p }) },
+        ];
+      case "polyline":
+        return e.points.map((pt, i) => ({
+          p: pt,
+          setter: (en: Entity, p: Vec2) => {
+            const poly = en as Extract<Entity, { type: "polyline" }>;
+            const points = poly.points.map((q, j) => (j === i ? p : q));
+            return { ...poly, points };
+          },
+        }));
+      case "circle":
+        return [
+          { p: e.center, setter: (en, p) => ({ ...(en as Extract<Entity, { type: "circle" }>), center: p }) },
+          {
+            p: { x: e.center.x + e.radius, y: e.center.y },
+            setter: (en, p) => {
+              const c = en as Extract<Entity, { type: "circle" }>;
+              return { ...c, radius: dist(c.center, p) };
+            },
+          },
+        ];
+      case "arc":
+        return [
+          { p: e.center, setter: (en, p) => ({ ...(en as Extract<Entity, { type: "arc" }>), center: p }) },
+          {
+            p: { x: e.center.x + Math.cos(e.startAngle) * e.radius, y: e.center.y + Math.sin(e.startAngle) * e.radius },
+            setter: (en, p) => {
+              const a = en as Extract<Entity, { type: "arc" }>;
+              return { ...a, startAngle: angleBetween(a.center, p) };
+            },
+          },
+          {
+            p: { x: e.center.x + Math.cos(e.endAngle) * e.radius, y: e.center.y + Math.sin(e.endAngle) * e.radius },
+            setter: (en, p) => {
+              const a = en as Extract<Entity, { type: "arc" }>;
+              return { ...a, endAngle: angleBetween(a.center, p) };
+            },
+          },
+        ];
+      case "ellipse":
+        return [
+          { p: e.center, setter: (en, p) => ({ ...(en as Extract<Entity, { type: "ellipse" }>), center: p }) },
+        ];
+      case "point":
+        return [{ p: e.at, setter: (en, p) => ({ ...(en as Extract<Entity, { type: "point" }>), at: p }) }];
+      case "text":
+        return [{ p: e.at, setter: (en, p) => ({ ...(en as Extract<Entity, { type: "text" }>), at: p }) }];
+      case "dimension":
+        return [
+          { p: e.a, setter: (en, p) => ({ ...(en as Extract<Entity, { type: "dimension" }>), a: p }) },
+          { p: e.b, setter: (en, p) => ({ ...(en as Extract<Entity, { type: "dimension" }>), b: p }) },
+        ];
+    }
+  }
+
+  /** If a single entity is selected, find a grip near the world point. */
+  private pickGrip(world: Vec2): { id: string; setter: (e: Entity, p: Vec2) => Entity } | null {
+    if (this.selection.size !== 1) return null;
+    const id = [...this.selection][0];
+    const e = this.doc.entities.find((x) => x.id === id);
+    if (!e) return null;
+    const tol = 9 / this.vp.scale;
+    for (const g of this.grips(e)) {
+      if (dist(world, g.p) <= tol) return { id, setter: g.setter };
+    }
+    return null;
+  }
+
   private clickSelect(world: Vec2, additive: boolean): void {
     const id = this.pick(world);
     if (!additive) this.selection.clear();
@@ -402,6 +526,21 @@ export class CadEngine {
   // ---- tool factory ----------------------------------------------------
   private commit(ops: Op[]): void {
     this.applyOperations(ops);
+  }
+
+  /** Signed offset distance from an entity to a clicked point (side-aware). */
+  private offsetDistanceFor(e: Entity, p: Vec2): number {
+    switch (e.type) {
+      case "line":
+        return dot(sub(p, e.a), leftNormal(e.a, e.b));
+      case "circle":
+      case "arc":
+        return dist(p, e.center) - e.radius;
+      case "ellipse":
+        return dist(p, e.center) - (e.rx + e.ry) / 2;
+      default:
+        return distanceTo(e, p);
+    }
   }
 
   private makeTool(name: ToolName): Tool {
@@ -706,6 +845,278 @@ export class CadEngine {
               return [
                 { id: "prev", type: "dimension", layer: "dimensions", a, b: cur, offset: 1 },
               ];
+            return [];
+          },
+          cancel() {
+            a = null;
+            cur = null;
+          },
+        };
+      }
+
+      case "ellipse": {
+        let center: Vec2 | null = null;
+        let cur: Vec2 | null = null;
+        return {
+          name,
+          prompt: "타원: 중심 클릭 → 반축 모서리",
+          click(p) {
+            if (!center) center = p;
+            else {
+              eng.commit([
+                {
+                  op: "add_ellipse",
+                  center: [center.x, center.y],
+                  rx: Math.abs(p.x - center.x) || 0.001,
+                  ry: Math.abs(p.y - center.y) || 0.001,
+                },
+              ]);
+              center = null;
+            }
+          },
+          move(p) {
+            cur = p;
+          },
+          preview() {
+            if (!center || !cur) return [];
+            return [
+              {
+                id: "prev",
+                type: "ellipse",
+                layer: eng.doc.currentLayer,
+                center,
+                rx: Math.abs(cur.x - center.x) || 0.001,
+                ry: Math.abs(cur.y - center.y) || 0.001,
+                rotation: 0,
+              },
+            ];
+          },
+          cancel() {
+            center = null;
+            cur = null;
+          },
+        };
+      }
+
+      case "mirror": {
+        let a: Vec2 | null = null;
+        let cur: Vec2 | null = null;
+        return {
+          name,
+          prompt: "대칭: 대칭선 두 점 (먼저 객체 선택)",
+          click(p) {
+            if (!eng.selection.size) {
+              eng.say("먼저 객체를 선택하세요.");
+              return;
+            }
+            if (!a) {
+              a = p;
+              return;
+            }
+            eng.commit([
+              { op: "mirror", selector: "selected", a: [a.x, a.y], b: [p.x, p.y], keepOriginal: true },
+            ]);
+            a = null;
+          },
+          move(p) {
+            cur = p;
+          },
+          preview() {
+            if (!a || !cur) return [];
+            return eng.doc.entities
+              .filter((e) => eng.selection.has(e.id))
+              .map((e) => ({ ...mirrorEntity(e, a!, cur!), id: "prev" + e.id }));
+          },
+          cancel() {
+            a = null;
+            cur = null;
+          },
+        };
+      }
+
+      case "offset": {
+        let cur: Vec2 | null = null;
+        return {
+          name,
+          prompt: "간격띄우기: 방향/거리 지점 클릭 (먼저 객체 선택)",
+          click(p) {
+            const t = eng.doc.entities.filter((e) => eng.selection.has(e.id));
+            if (!t.length) {
+              eng.say("먼저 객체를 선택하세요.");
+              return;
+            }
+            const d = eng.offsetDistanceFor(t[0], p);
+            eng.commit([{ op: "offset", selector: "selected", distance: d }]);
+          },
+          move(p) {
+            cur = p;
+          },
+          preview() {
+            const t = eng.doc.entities.filter((e) => eng.selection.has(e.id));
+            if (!t.length || !cur) return [];
+            const d = eng.offsetDistanceFor(t[0], cur);
+            return t
+              .map((e) => offsetEntity(e, d))
+              .filter((e): e is Entity => !!e)
+              .map((e) => ({ ...e, id: "prevoff" }));
+          },
+          cancel() {
+            cur = null;
+          },
+        };
+      }
+
+      case "fillet":
+      case "chamfer": {
+        let first: string | null = null;
+        return {
+          name,
+          prompt:
+            name === "fillet"
+              ? `모깎기 r=${this.filletRadius}: 선1 → 선2`
+              : `모따기 d=${this.chamferDist}: 선1 → 선2`,
+          click(p) {
+            const id = eng.pick(p);
+            const e = id ? eng.doc.entities.find((x) => x.id === id) : null;
+            if (!e || e.type !== "line") {
+              eng.say("선 두 개가 필요합니다.");
+              return;
+            }
+            if (!first) {
+              first = id;
+              eng.say("선1 선택됨 — 선2를 클릭하세요.");
+              return;
+            }
+            const l1 = eng.doc.entities.find((x) => x.id === first) as LineEntity | undefined;
+            const l2 = e as LineEntity;
+            first = null;
+            if (!l1 || l1.id === l2.id) return;
+            if (name === "fillet") {
+              const res = filletLines(l1, l2, eng.filletRadius);
+              if (!res) {
+                eng.say("모깎기 실패(평행선).");
+                return;
+              }
+              eng.doc.transact(() => {
+                eng.doc.replace(l1.id, res.line1);
+                eng.doc.replace(l2.id, res.line2);
+                eng.doc.add(res.arc);
+              });
+              eng.say("모깎기 완료.");
+            } else {
+              const res = chamferLines(l1, l2, eng.chamferDist);
+              if (!res) {
+                eng.say("모따기 실패(평행선).");
+                return;
+              }
+              eng.doc.transact(() => {
+                eng.doc.replace(l1.id, res.line1);
+                eng.doc.replace(l2.id, res.line2);
+                eng.doc.add(res.bevel);
+              });
+              eng.say("모따기 완료.");
+            }
+          },
+          move() {},
+          preview: () => [],
+          cancel() {
+            first = null;
+          },
+        };
+      }
+
+      case "trim":
+        return {
+          name,
+          prompt: "자르기: 잘라낼 선에서 제거할 부분을 클릭",
+          click(p) {
+            const id = eng.pick(p);
+            const e = id ? eng.doc.entities.find((x) => x.id === id) : null;
+            if (!e || e.type !== "line") {
+              eng.say("선만 자를 수 있습니다.");
+              return;
+            }
+            const cutters = eng.doc.entities.filter((x) => x.id !== id).flatMap(entitySegments);
+            const pieces = trimLine(e as LineEntity, cutters, p);
+            eng.doc.transact(() => {
+              eng.doc.remove(new Set([e.id]));
+              pieces.forEach((pc) => eng.doc.add(pc));
+            });
+            eng.say(`자르기: ${pieces.length}조각 남음.`);
+          },
+          move() {},
+          preview: () => [],
+          cancel() {},
+        };
+
+      case "extend":
+        return {
+          name,
+          prompt: "연장: 연장할 선의 끝쪽을 클릭",
+          click(p) {
+            const id = eng.pick(p);
+            const e = id ? eng.doc.entities.find((x) => x.id === id) : null;
+            if (!e || e.type !== "line") {
+              eng.say("선만 연장할 수 있습니다.");
+              return;
+            }
+            const bounds = eng.doc.entities.filter((x) => x.id !== id).flatMap(entitySegments);
+            const ext = extendLine(e as LineEntity, bounds, p);
+            if (!ext) {
+              eng.say("연장할 경계를 찾지 못했습니다.");
+              return;
+            }
+            eng.doc.transact(() => eng.doc.replace(e.id, ext));
+            eng.say("연장 완료.");
+          },
+          move() {},
+          preview: () => [],
+          cancel() {},
+        };
+
+      case "hatch":
+        return {
+          name,
+          prompt: "채우기: 닫힌 객체(원/타원/닫힌 폴리라인) 클릭",
+          click(p) {
+            const id = eng.pick(p);
+            const e = id ? eng.doc.entities.find((x) => x.id === id) : null;
+            if (!e) return;
+            if (e.type === "circle" || e.type === "ellipse" || (e.type === "polyline" && e.closed)) {
+              eng.doc.transact(() => eng.doc.replace(e.id, { ...e, fill: "#4da3ff55" }));
+              eng.say("채우기 적용.");
+            } else {
+              eng.say("닫힌 객체만 채울 수 있습니다.");
+            }
+          },
+          move() {},
+          preview: () => [],
+          cancel() {},
+        };
+
+      case "measure": {
+        let a: Vec2 | null = null;
+        let cur: Vec2 | null = null;
+        return {
+          name,
+          prompt: "거리: 두 점 클릭",
+          click(p) {
+            if (!a) {
+              a = p;
+              return;
+            }
+            const d = dist(a, p);
+            const ang = (angleBetween(a, p) * 180) / Math.PI;
+            eng.say(
+              `거리 ${d.toFixed(3)}  각도 ${ang.toFixed(2)}°  ΔX ${(p.x - a.x).toFixed(3)} ΔY ${(p.y - a.y).toFixed(3)}`,
+            );
+            a = null;
+          },
+          move(p) {
+            cur = p;
+          },
+          preview() {
+            if (a && cur) return [{ id: "prev", type: "line", layer: eng.doc.currentLayer, a, b: cur }];
             return [];
           },
           cancel() {

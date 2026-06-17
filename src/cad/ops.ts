@@ -11,6 +11,12 @@ import {
   scaleEntity,
 } from "./entities";
 import { Vec2, rad } from "./geometry";
+import {
+  mirrorEntity,
+  offsetEntity,
+  arrayRect,
+  arrayPolar,
+} from "./geomops";
 
 export type XY = [number, number];
 
@@ -30,6 +36,15 @@ export type Op =
       layer?: string;
       color?: string;
     }
+  | {
+      op: "add_ellipse";
+      center: XY;
+      rx: number;
+      ry: number;
+      rotation?: number;
+      layer?: string;
+      color?: string;
+    }
   | { op: "add_point"; at: XY; layer?: string; color?: string }
   | {
       op: "add_text";
@@ -46,6 +61,11 @@ export type Op =
   | { op: "rotate"; selector?: Selector; origin: XY; angle: number }
   | { op: "scale"; selector?: Selector; origin: XY; factor: number }
   | { op: "delete"; selector?: Selector }
+  | { op: "mirror"; selector?: Selector; a: XY; b: XY; keepOriginal?: boolean }
+  | { op: "offset"; selector?: Selector; distance: number }
+  | { op: "array_rect"; selector?: Selector; rows: number; cols: number; dx: number; dy: number }
+  | { op: "array_polar"; selector?: Selector; center: XY; count: number; angle?: number }
+  | { op: "hatch"; selector?: Selector; color?: string }
   | { op: "set_layer"; name: string; color?: string; visible?: boolean; current?: boolean }
   | { op: "clear" };
 
@@ -150,6 +170,21 @@ export function applyOps(doc: CadDocument, ops: Op[], ctx: ApplyContext): ApplyR
           created.push(e.id);
           break;
         }
+        case "add_ellipse": {
+          const e: Entity = {
+            id: newId(),
+            type: "ellipse",
+            layer,
+            color,
+            center: xy(op.center),
+            rx: op.rx,
+            ry: op.ry,
+            rotation: rad(op.rotation ?? 0),
+          };
+          doc.add(e);
+          created.push(e.id);
+          break;
+        }
         case "add_point": {
           const e: Entity = { id: newId(), type: "point", layer, color, at: xy(op.at) };
           doc.add(e);
@@ -223,6 +258,66 @@ export function applyOps(doc: CadDocument, ops: Op[], ctx: ApplyContext): ApplyR
           const targets = resolve(doc, op.selector, ctx);
           doc.remove(new Set(targets.map((e) => e.id)));
           messages.push(`삭제: ${targets.length}개`);
+          break;
+        }
+        case "mirror": {
+          const targets = resolve(doc, op.selector, ctx);
+          const a = xy(op.a);
+          const b = xy(op.b);
+          for (const e of targets) {
+            const m = mirrorEntity(e, a, b);
+            doc.add(m);
+            created.push(m.id);
+            if (op.keepOriginal === false) doc.remove(new Set([e.id]));
+          }
+          messages.push(`대칭: ${targets.length}개`);
+          break;
+        }
+        case "offset": {
+          const targets = resolve(doc, op.selector, ctx);
+          for (const e of targets) {
+            const o = offsetEntity(e, op.distance);
+            if (o) {
+              doc.add(o);
+              created.push(o.id);
+            }
+          }
+          messages.push(`간격띄우기: ${op.distance}`);
+          break;
+        }
+        case "array_rect": {
+          const targets = resolve(doc, op.selector, ctx);
+          for (const e of targets) {
+            for (const c of arrayRect(e, Math.max(1, op.rows), Math.max(1, op.cols), op.dx, op.dy)) {
+              doc.add(c);
+              created.push(c.id);
+            }
+          }
+          messages.push(`직사각형 배열: ${op.rows}×${op.cols}`);
+          break;
+        }
+        case "array_polar": {
+          const targets = resolve(doc, op.selector, ctx);
+          for (const e of targets) {
+            for (const c of arrayPolar(e, xy(op.center), Math.max(2, op.count), op.angle ?? 360)) {
+              doc.add(c);
+              created.push(c.id);
+            }
+          }
+          messages.push(`원형 배열: ${op.count}개`);
+          break;
+        }
+        case "hatch": {
+          const targets = resolve(doc, op.selector, ctx);
+          const fill = op.color ?? "#4da3ff55";
+          let n = 0;
+          for (const e of targets) {
+            if (e.type === "circle" || e.type === "ellipse" || (e.type === "polyline" && e.closed)) {
+              doc.replace(e.id, { ...e, fill });
+              n++;
+            }
+          }
+          messages.push(`채우기: ${n}개`);
           break;
         }
         case "set_layer": {

@@ -20,6 +20,7 @@ export type EntityType =
   | "polyline"
   | "circle"
   | "arc"
+  | "ellipse"
   | "point"
   | "text"
   | "dimension";
@@ -30,6 +31,8 @@ export interface BaseEntity {
   layer: string;
   /** Optional per-entity color override (hex). Falls back to layer color. */
   color?: string;
+  /** Solid fill color for closed shapes (polyline closed / circle / ellipse). */
+  fill?: string;
 }
 
 export interface LineEntity extends BaseEntity {
@@ -59,6 +62,16 @@ export interface ArcEntity extends BaseEntity {
   endAngle: number;
 }
 
+export interface EllipseEntity extends BaseEntity {
+  type: "ellipse";
+  center: Vec2;
+  /** semi-major / semi-minor radii */
+  rx: number;
+  ry: number;
+  /** rotation of the major axis, radians */
+  rotation: number;
+}
+
 export interface PointEntity extends BaseEntity {
   type: "point";
   at: Vec2;
@@ -86,9 +99,19 @@ export type Entity =
   | PolylineEntity
   | CircleEntity
   | ArcEntity
+  | EllipseEntity
   | PointEntity
   | TextEntity
   | DimensionEntity;
+
+/** Point on an ellipse at parameter t (radians, before rotation). */
+export function ellipsePoint(e: EllipseEntity, t: number): Vec2 {
+  const lx = e.rx * Math.cos(t);
+  const ly = e.ry * Math.sin(t);
+  const c = Math.cos(e.rotation);
+  const s = Math.sin(e.rotation);
+  return { x: e.center.x + lx * c - ly * s, y: e.center.y + lx * s + ly * c };
+}
 
 let idCounter = 0;
 export function newId(): string {
@@ -129,6 +152,14 @@ export function snapPoints(e: Entity): { p: Vec2; kind: string }[] {
         { p: polar(e.center, e.startAngle, e.radius), kind: "endpoint" },
         { p: polar(e.center, e.endAngle, e.radius), kind: "endpoint" },
       ];
+    case "ellipse":
+      return [
+        { p: e.center, kind: "center" },
+        { p: ellipsePoint(e, 0), kind: "quadrant" },
+        { p: ellipsePoint(e, Math.PI / 2), kind: "quadrant" },
+        { p: ellipsePoint(e, Math.PI), kind: "quadrant" },
+        { p: ellipsePoint(e, (3 * Math.PI) / 2), kind: "quadrant" },
+      ];
     case "point":
       return [{ p: e.at, kind: "node" }];
     case "text":
@@ -164,6 +195,15 @@ export function entityBounds(e: Entity): Bounds {
         const a = (k * Math.PI) / 2;
         if (angleInSweep(a, e.startAngle, e.endAngle)) growBounds(bb, polar(e.center, a, e.radius));
       }
+      break;
+    }
+    case "ellipse": {
+      const c = Math.cos(e.rotation);
+      const s = Math.sin(e.rotation);
+      const hx = Math.hypot(e.rx * c, e.ry * s);
+      const hy = Math.hypot(e.rx * s, e.ry * c);
+      growBounds(bb, { x: e.center.x - hx, y: e.center.y - hy });
+      growBounds(bb, { x: e.center.x + hx, y: e.center.y + hy });
       break;
     }
     case "point":
@@ -218,6 +258,17 @@ export function distanceTo(e: Entity, p: Vec2): number {
         dist(p, polar(e.center, e.endAngle, e.radius)),
       );
     }
+    case "ellipse": {
+      let best = Infinity;
+      const N = 64;
+      let prev = ellipsePoint(e, 0);
+      for (let i = 1; i <= N; i++) {
+        const cur = ellipsePoint(e, (i / N) * 2 * Math.PI);
+        best = Math.min(best, distToSegment(p, prev, cur));
+        prev = cur;
+      }
+      return best;
+    }
     case "point":
       return dist(p, e.at);
     case "text":
@@ -239,6 +290,8 @@ export function translate(e: Entity, d: Vec2): Entity {
       return { ...e, center: m(e.center) };
     case "arc":
       return { ...e, center: m(e.center) };
+    case "ellipse":
+      return { ...e, center: m(e.center) };
     case "point":
       return { ...e, at: m(e.at) };
     case "text":
@@ -259,6 +312,8 @@ export function rotateEntity(e: Entity, origin: Vec2, ang: number): Entity {
       return { ...e, center: r(e.center) };
     case "arc":
       return { ...e, center: r(e.center), startAngle: e.startAngle + ang, endAngle: e.endAngle + ang };
+    case "ellipse":
+      return { ...e, center: r(e.center), rotation: e.rotation + ang };
     case "point":
       return { ...e, at: r(e.at) };
     case "text":
@@ -279,6 +334,8 @@ export function scaleEntity(e: Entity, origin: Vec2, factor: number): Entity {
       return { ...e, center: s(e.center), radius: e.radius * factor };
     case "arc":
       return { ...e, center: s(e.center), radius: e.radius * factor };
+    case "ellipse":
+      return { ...e, center: s(e.center), rx: e.rx * factor, ry: e.ry * factor };
     case "point":
       return { ...e, at: s(e.at) };
     case "text":
