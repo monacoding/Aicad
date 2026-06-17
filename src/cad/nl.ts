@@ -98,6 +98,27 @@ export async function runNaturalLanguage(engine: CadEngine, prompt: string): Pro
   return { ops: [], error: "서버에 연결할 수 없고 로컬 해석도 실패했습니다." };
 }
 
+/** Send a pasted/loaded image to the backend and get ops that reproduce it. */
+export async function runImageToOps(engine: CadEngine, dataUrl: string): Promise<NlResponse> {
+  try {
+    const res = await fetch("/api/image", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ image: dataUrl, context: buildContext(engine) }),
+    });
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      return { ops: [], error: `서버 오류 (${res.status}): ${t.slice(0, 200)}` };
+    }
+    const data = (await res.json()) as NlResponse;
+    if (data.error) return { ops: [], error: data.error };
+    const ops = Array.isArray(data.ops) ? data.ops.filter(isValidOp) : [];
+    return { ops, note: data.note };
+  } catch (e) {
+    return { ops: [], error: `이미지 전송 실패: ${(e as Error).message}` };
+  }
+}
+
 const OP_NAMES = new Set([
   "add_line",
   "add_polyline",

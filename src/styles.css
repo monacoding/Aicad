@@ -205,6 +205,11 @@ canvas {
   margin-top: 6px;
   align-items: center;
 }
+.nl .hint {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--muted);
+}
 .nl .examples {
   display: flex;
   flex-wrap: wrap;

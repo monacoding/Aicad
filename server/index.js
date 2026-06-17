@@ -5,6 +5,9 @@ import cors from "cors";
 import dotenv from "dotenv";
 import Anthropic from "@anthropic-ai/sdk";
 import { spawn, spawnSync } from "node:child_process";
+import { writeFileSync, unlinkSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { opSchema } from "./opSchema.js";
 
 dotenv.config();
@@ -19,7 +22,7 @@ const FORCE_PROVIDER = process.env.AICAD_PROVIDER; // "api" | "cli" (else auto)
 
 const app = express();
 app.use(cors());
-app.use(express.json({ limit: "1mb" }));
+app.use(express.json({ limit: "30mb" })); // images arrive as base64 data URLs
 
 const clientOpts = {};
 if (API_KEY) clientOpts.apiKey = API_KEY;
@@ -116,22 +119,13 @@ app.get("/api/health", (_req, res) => {
   });
 });
 
-/** Run the local Claude Code CLI headlessly and return its text result. */
-function callCli(userContent) {
+/** Low-level: run the local Claude Code CLI headlessly, return its text result. */
+function runCli(args, stdin, timeoutMs = 180000) {
   return new Promise((resolve, reject) => {
-    const sys = SYSTEM_PROMPT + "\n\nRespond with ONLY the JSON object — no prose, no code fences.";
-    const args = [
-      "-p",
-      "--output-format", "json",
-      "--model", MODEL,
-      "--append-system-prompt", sys,
-      "--max-turns", "1",
-      "--disallowed-tools", "Bash Edit Write Read WebSearch WebFetch",
-    ];
     const child = spawn(CLAUDE_BIN, args, { stdio: ["pipe", "pipe", "pipe"] });
     let out = "";
     let err = "";
-    const killer = setTimeout(() => child.kill("SIGKILL"), 180000);
+    const killer = setTimeout(() => child.kill("SIGKILL"), timeoutMs);
     child.stdout.on("data", (d) => (out += d));
     child.stderr.on("data", (d) => (err += d));
     child.on("error", (e) => {
@@ -151,11 +145,22 @@ function callCli(userContent) {
       } catch {
         /* not a JSON envelope — use raw stdout */
       }
-      resolve({ mode: "cli", text });
+      resolve(text);
     });
-    child.stdin.write(userContent);
+    if (stdin != null) child.stdin.write(stdin);
     child.stdin.end();
   });
+}
+
+/** NL via CLI: no tools needed, single turn. */
+async function callCli(userContent) {
+  const sys = SYSTEM_PROMPT + "\n\nRespond with ONLY the JSON object — no prose, no code fences.";
+  const args = [
+    "-p", "--output-format", "json", "--model", MODEL,
+    "--append-system-prompt", sys, "--max-turns", "1",
+    "--disallowed-tools", "Bash Edit Write Read WebSearch WebFetch",
+  ];
+  return { mode: "cli", text: await runCli(args, userContent) };
 }
 
 /** Dispatch to the active provider (API key SDK or local CLI). */
@@ -163,6 +168,86 @@ async function generate(userContent) {
   const p = provider();
   if (p === "api") return callClaude(userContent);
   if (p === "cli") return callCli(userContent);
+  throw Object.assign(new Error("no provider"), { noProvider: true });
+}
+
+const IMAGE_SYSTEM =
+  SYSTEM_PROMPT +
+  `\n\nThe user provides an IMAGE of a drawing, sketch, or diagram. Reproduce it as
+faithfully as possible using the op vocabulary: trace each line / rectangle /
+circle / arc / polyline, use add_symbol for recognizable P&ID components
+(valves, pumps, tanks, heat exchangers, instruments), add_text for visible
+labels, and add_dimension where dimensions are shown. Preserve relative
+positions and proportions; scale the whole drawing to roughly fit a ~40-unit
+canvas centered near the origin. Output ONLY the JSON object.`;
+
+/** Parse a data URL "data:image/png;base64,..." into {mediaType, base64}. */
+function parseDataUrl(dataUrl) {
+  const m = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/s.exec(dataUrl || "");
+  if (!m) return null;
+  return { mediaType: m[1], base64: m[2] };
+}
+
+/** Image -> ops via the API (vision content block). */
+async function imageViaApi(mediaType, base64, userText) {
+  const content = [
+    { type: "image", source: { type: "base64", media_type: mediaType, data: base64 } },
+    { type: "text", text: userText },
+  ];
+  try {
+    const stream = client.messages.stream({
+      model: MODEL,
+      max_tokens: 8000,
+      output_config: { effort: "medium", format: { type: "json_schema", schema: opSchema } },
+      system: IMAGE_SYSTEM,
+      messages: [{ role: "user", content }],
+    });
+    const message = await stream.finalMessage();
+    if (message.stop_reason === "refusal") throw Object.assign(new Error("refusal"), { refusal: true });
+    return { mode: "api", text: textFrom(message) };
+  } catch (err) {
+    if (err?.refusal) throw err;
+    const message = await client.messages.create({
+      model: MODEL,
+      max_tokens: 8000,
+      system: IMAGE_SYSTEM + "\n\nRespond with ONLY the JSON object.",
+      messages: [{ role: "user", content }],
+    });
+    return { mode: "api", text: textFrom(message) };
+  }
+}
+
+/** Image -> ops via the local CLI (writes a temp file, reads it with the Read tool). */
+async function imageViaCli(mediaType, base64, userText) {
+  const dir = mkdtempSync(join(tmpdir(), "aicad-img-"));
+  const ext = mediaType.split("/")[1]?.replace("jpeg", "jpg") || "png";
+  const file = join(dir, `paste.${ext}`);
+  writeFileSync(file, Buffer.from(base64, "base64"));
+  try {
+    const args = [
+      "-p", "--output-format", "json", "--model", MODEL,
+      "--append-system-prompt", IMAGE_SYSTEM,
+      "--allowed-tools", "Read", "--add-dir", dir, "--max-turns", "4",
+    ];
+    const prompt = `Read the image file at ${file} and reproduce the drawing as ops JSON.\n${userText}`;
+    const text = await runCli(args, prompt, 240000);
+    return { mode: "cli", text };
+  } finally {
+    try {
+      unlinkSync(file);
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+async function generateFromImage(dataUrl, context) {
+  const parsed = parseDataUrl(dataUrl);
+  if (!parsed) throw new Error("이미지 형식을 인식하지 못했습니다 (PNG/JPEG 데이터 URL 필요).");
+  const userText = `현재 도면 컨텍스트(JSON): ${JSON.stringify(context ?? {}, null, 0)}\nOutput ONLY the JSON object.`;
+  const p = provider();
+  if (p === "api") return imageViaApi(parsed.mediaType, parsed.base64, userText);
+  if (p === "cli") return imageViaCli(parsed.mediaType, parsed.base64, userText);
   throw Object.assign(new Error("no provider"), { noProvider: true });
 }
 
@@ -241,6 +326,34 @@ app.post("/api/nl", async (req, res) => {
     console.error("NL error:", err);
     const status = err?.status ?? 500;
     return res.status(500).json({ ops: [], error: `모델 호출 오류 (${status}): ${err?.message ?? err}` });
+  }
+});
+
+app.post("/api/image", async (req, res) => {
+  const { image, context } = req.body ?? {};
+  if (!image || typeof image !== "string") {
+    return res.status(400).json({ ops: [], error: "이미지 데이터가 없습니다." });
+  }
+  if (provider() === "none") {
+    return res.json({
+      ops: [],
+      error: "이미지 인식은 Claude 백엔드가 필요합니다 (로컬 claude CLI 로그인 또는 ANTHROPIC_API_KEY).",
+    });
+  }
+  try {
+    const { mode, text } = await generateFromImage(image, context);
+    if (!text) return res.json({ ops: [], error: "모델이 빈 응답을 반환했습니다." });
+    let parsed;
+    try {
+      parsed = parseOps(text);
+    } catch {
+      return res.json({ ops: [], error: "이미지 응답 JSON 파싱에 실패했습니다." });
+    }
+    return res.json({ ops: parsed.ops ?? [], note: parsed.note, mode });
+  } catch (err) {
+    if (err?.refusal) return res.json({ ops: [], error: "요청이 정책에 의해 거부되었습니다." });
+    console.error("image error:", err);
+    return res.status(500).json({ ops: [], error: `이미지 인식 오류: ${err?.message ?? err}` });
   }
 });
 

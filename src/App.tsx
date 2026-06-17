@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { CadEngine, EngineUiState, ToolName } from "./cad/engine";
 import { runCommand } from "./cad/commands";
-import { runNaturalLanguage, nlHealth, type NlHealth } from "./cad/nl";
+import { runNaturalLanguage, runImageToOps, nlHealth, type NlHealth } from "./cad/nl";
 import { exportDXF, importDXF } from "./cad/dxf";
 import { extractBom, toCSV, type ValveRow, type PipeRow, type ItemRow } from "./cad/bom";
 
@@ -282,6 +282,65 @@ function NlPanel({ engine }: { engine: () => CadEngine }) {
     }
   }, [text, busy, engine, health]);
 
+  const fromImage = useCallback(
+    async (dataUrl: string) => {
+      if (busy) return;
+      if (!health?.configured) {
+        setStatus({ msg: "이미지 인식은 Claude 연결이 필요합니다 (로컬 CLI 또는 API 키).", kind: "err" });
+        return;
+      }
+      setBusy(true);
+      setStatus({ msg: "이미지를 인식해 도면으로 변환 중…", kind: "" });
+      try {
+        const res = await runImageToOps(engine(), dataUrl);
+        if (res.error) setStatus({ msg: res.error, kind: "err" });
+        else if (res.ops.length === 0) setStatus({ msg: "이미지에서 도형을 찾지 못했습니다.", kind: "err" });
+        else {
+          engine().applyOperations(res.ops);
+          engine().zoomFit();
+          setStatus({ msg: res.note ? `✓ ${res.note}` : `✓ 이미지 → ${res.ops.length}개 연산`, kind: "ok" });
+        }
+      } catch (e) {
+        setStatus({ msg: `오류: ${(e as Error).message}`, kind: "err" });
+      } finally {
+        setBusy(false);
+      }
+    },
+    [busy, engine, health],
+  );
+
+  const readFile = useCallback(
+    (file: File) => {
+      const r = new FileReader();
+      r.onload = () => fromImage(String(r.result));
+      r.readAsDataURL(file);
+    },
+    [fromImage],
+  );
+
+  // global paste: if the clipboard holds an image, reproduce it
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (let i = 0; i < items.length; i++) {
+        const it = items[i];
+        if (it.kind === "file" && it.type.startsWith("image/")) {
+          const f = it.getAsFile();
+          if (f) {
+            e.preventDefault();
+            readFile(f);
+            return;
+          }
+        }
+      }
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [readFile]);
+
+  const imgInputRef = useRef<HTMLInputElement>(null);
+
   const connected = !!health?.configured;
   const viaCli = health?.provider === "cli";
   const badgeLabel = !connected ? "○ 로컬 모드" : viaCli ? "● Claude CLI" : `● Claude (${health?.model})`;
@@ -310,7 +369,22 @@ function NlPanel({ engine }: { engine: () => CadEngine }) {
         <button className="btn active" disabled={busy} onClick={run}>
           {busy ? "생성 중…" : "그리기 (Ctrl+Enter)"}
         </button>
+        <button className="btn" disabled={busy} onClick={() => imgInputRef.current?.click()} title="이미지를 인식해 똑같이 그리기 (붙여넣기 Ctrl+V 도 가능)">
+          🖼 이미지
+        </button>
+        <input
+          ref={imgInputRef}
+          type="file"
+          accept="image/*"
+          style={{ display: "none" }}
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) readFile(f);
+            e.target.value = "";
+          }}
+        />
       </div>
+      <div className="hint">이미지를 복사해 <b>Ctrl+V</b>로 붙여넣으면 인식해서 그대로 그립니다.</div>
       <div className="examples">
         {EXAMPLES.map((ex) => (
           <span key={ex} onClick={() => setText(ex)}>
