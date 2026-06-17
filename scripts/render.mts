@@ -36,6 +36,8 @@ export interface CompositeOpts {
   select?: number;
   layers?: [string, string][];
   cmd?: string;
+  /** draw extra content (e.g. a BOM overlay) on top before saving */
+  overlay?: (ctx: any, w: number, h: number) => void;
 }
 
 export function compositeToFile(doc: CadDocument, out: string, opts: CompositeOpts = {}) {
@@ -63,6 +65,8 @@ export function compositeToFile(doc: CadDocument, out: string, opts: CompositeOp
   ctx.translate(region.x, region.y);
   renderer.render({ selection, hover: null, snap: null, cursor: null, preview: [], band: null, showGrid: true });
   ctx.restore();
+
+  if (opts.overlay) opts.overlay(ctx, W, H);
 
   fs.mkdirSync(path.dirname(out), { recursive: true });
   fs.writeFileSync(out, canvas.toBuffer("image/png"));
