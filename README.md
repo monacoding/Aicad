@@ -81,24 +81,22 @@ cp .env.example .env          # ANTHROPIC_API_KEY 입력
 npm run dev                   # 프론트(:5173) + API(:8787) 동시 기동
 ```
 
-### Claude API 연결 (자연어 그리기)
+### Claude 연결 (자연어 그리기) — 3가지 방법
 
-자연어 패널은 **서버(`server/index.js`)를 통해 Claude API**를 호출합니다(키는 서버에만
-보관, 브라우저로 노출되지 않음). 연결하려면 프로젝트 루트에 `.env`를 만들고:
+자연어 패널은 **서버(`server/index.js`)를 통해 Claude**를 호출합니다(자격증명은 서버에만,
+브라우저로 노출 안 됨). 서버는 다음 우선순위로 백엔드를 자동 선택합니다.
 
-```bash
-cp .env.example .env
-# .env 안에:
-ANTHROPIC_API_KEY=sk-ant-...        # 본인 Anthropic API 키
-# AICAD_MODEL=claude-opus-4-8        # (선택) 모델 변경
-# ANTHROPIC_BASE_URL=http://localhost:8082   # (선택) 로컬 게이트웨이/프록시 사용 시
-```
+1. **로컬 Claude Code CLI (API 키 불필요, 권장)** — 컴퓨터에 `claude` CLI가 설치·로그인돼
+   있으면(평소 Claude Code를 쓰는 그 로그인) 서버가 `claude -p` 헤드리스 모드로 호출합니다.
+   별도 설정 없이 `npm run dev`만 하면 배지가 **● Claude CLI** 로 표시됩니다.
+   (`claude` 가 PATH에 있어야 함. 다른 경로면 `.env`에 `AICAD_CLAUDE_CLI=/path/to/claude`.)
+2. **API 키** — `.env`에 `ANTHROPIC_API_KEY=sk-ant-...` (선택 `AICAD_MODEL`,
+   `ANTHROPIC_BASE_URL=로컬게이트웨이`). 배지 **● Claude (모델명)**.
+3. **로컬 해석기(폴백)** — 둘 다 없으면 내장 규칙 해석기(`src/cad/nlLocal.ts`)가 기본 작도/
+   편집/P&ID·시스템 템플릿을 처리. 배지 **○ 로컬 모드**.
 
-그런 다음 `npm run dev`로 재시작하면 자연어 패널 우측 배지가 **● Claude (모델명)** 으로
-바뀝니다. 키가 없으면 **○ 로컬 모드**로 표시되고 내장 로컬 해석기(`src/cad/nlLocal.ts`)가
-기본 작도/편집/P&ID·시스템 템플릿 요청을 처리합니다. 연결 상태는 `GET /api/health`로도
-확인할 수 있습니다. (구조화 출력/thinking 미지원 환경에서는 자동으로 일반 JSON 모드로
-폴백합니다.) 그리기 도구·명령행·DXF 등 나머지 CAD 기능은 키와 무관하게 동작합니다.
+강제 지정: `.env`에 `AICAD_PROVIDER=cli` 또는 `api`. 상태는 `GET /api/health`로 확인
+(`provider`, `cli` 버전 표시). 그리기 도구·명령행·DXF 등 나머지 CAD 기능은 백엔드와 무관하게 동작합니다.
 
 자연어 테스트: `npx tsx scripts/nltest.mts` (110개 프롬프트, `docs/NL_TEST_REPORT.md`).
 

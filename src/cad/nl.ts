@@ -15,6 +15,8 @@ export interface NlResponse {
 export interface NlHealth {
   configured: boolean;
   model: string;
+  provider?: "api" | "cli" | "none";
+  cli?: string | null;
   auth?: string;
   baseURL?: string;
 }

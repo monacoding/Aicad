@@ -283,19 +283,19 @@ function NlPanel({ engine }: { engine: () => CadEngine }) {
   }, [text, busy, engine, health]);
 
   const connected = !!health?.configured;
+  const viaCli = health?.provider === "cli";
+  const badgeLabel = !connected ? "○ 로컬 모드" : viaCli ? "● Claude CLI" : `● Claude (${health?.model})`;
+  const badgeTitle = !connected
+    ? "Claude 백엔드 없음 — 로컬 해석기로 동작. 로컬 claude CLI 로그인 또는 .env ANTHROPIC_API_KEY 설정"
+    : viaCli
+      ? `로컬 Claude CLI 사용 중 (${health?.cli ?? "claude"}) · 모델 ${health?.model}`
+      : `Claude API 연결됨 · ${health?.model}`;
   return (
     <section className="nl">
       <h3>
         자연어로 그리기
-        <span
-          className={`nl-badge ${connected ? "on" : "off"}`}
-          title={
-            connected
-              ? `Claude 연결됨 · ${health?.model}${health?.baseURL && !health.baseURL.includes("api.anthropic.com") ? ` · ${health.baseURL}` : ""}`
-              : "API 키 미설정 — 로컬 해석기로 동작 (.env에 ANTHROPIC_API_KEY 설정)"
-          }
-        >
-          {connected ? `● Claude (${health?.model})` : "○ 로컬 모드"}
+        <span className={`nl-badge ${connected ? "on" : "off"}`} title={badgeTitle}>
+          {badgeLabel}
         </span>
       </h3>
       <textarea

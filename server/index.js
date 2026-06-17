@@ -4,6 +4,7 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import Anthropic from "@anthropic-ai/sdk";
+import { spawn, spawnSync } from "node:child_process";
 import { opSchema } from "./opSchema.js";
 
 dotenv.config();
@@ -13,6 +14,8 @@ const MODEL = process.env.AICAD_MODEL || "claude-opus-4-8";
 const API_KEY = process.env.ANTHROPIC_API_KEY;
 const AUTH_TOKEN = process.env.ANTHROPIC_AUTH_TOKEN;
 const BASE_URL = process.env.ANTHROPIC_BASE_URL; // optional local gateway/proxy
+const CLAUDE_BIN = process.env.AICAD_CLAUDE_CLI || "claude"; // local Claude Code CLI
+const FORCE_PROVIDER = process.env.AICAD_PROVIDER; // "api" | "cli" (else auto)
 
 const app = express();
 app.use(cors());
@@ -23,6 +26,28 @@ if (API_KEY) clientOpts.apiKey = API_KEY;
 else if (AUTH_TOKEN) clientOpts.authToken = AUTH_TOKEN;
 if (BASE_URL) clientOpts.baseURL = BASE_URL;
 const client = API_KEY || AUTH_TOKEN ? new Anthropic(clientOpts) : null;
+
+// Detect a locally-installed Claude Code CLI (uses the user's login/subscription
+// — no API key needed). Lets the NL feature work via `claude -p` headless mode.
+function detectCli() {
+  try {
+    const r = spawnSync(CLAUDE_BIN, ["--version"], { timeout: 5000, encoding: "utf8" });
+    return r.status === 0 ? (r.stdout || "").trim() : null;
+  } catch {
+    return null;
+  }
+}
+const CLI_VERSION = detectCli();
+const CLI_AVAILABLE = !!CLI_VERSION;
+
+/** Resolve which backend to use: explicit override, else API key, else CLI. */
+function provider() {
+  if (FORCE_PROVIDER === "api") return client ? "api" : "none";
+  if (FORCE_PROVIDER === "cli") return CLI_AVAILABLE ? "cli" : "none";
+  if (client) return "api";
+  if (CLI_AVAILABLE) return "cli";
+  return "none";
+}
 
 const SYSTEM_PROMPT = `You are the drawing engine of AiCAD, a 2D CAD program. You translate a user's
 natural-language request into a precise list of drawing operations.
@@ -79,14 +104,67 @@ P&ID / ship process diagrams:
   and pressure/flow/level instruments with signal lines.`;
 
 app.get("/api/health", (_req, res) => {
+  const p = provider();
   res.json({
     ok: true,
     model: MODEL,
-    configured: !!client,
+    provider: p, // "api" | "cli" | "none"
+    configured: p !== "none",
+    cli: CLI_AVAILABLE ? CLI_VERSION : null,
     auth: API_KEY ? "api_key" : AUTH_TOKEN ? "auth_token" : "none",
     baseURL: BASE_URL ?? "https://api.anthropic.com",
   });
 });
+
+/** Run the local Claude Code CLI headlessly and return its text result. */
+function callCli(userContent) {
+  return new Promise((resolve, reject) => {
+    const sys = SYSTEM_PROMPT + "\n\nRespond with ONLY the JSON object — no prose, no code fences.";
+    const args = [
+      "-p",
+      "--output-format", "json",
+      "--model", MODEL,
+      "--append-system-prompt", sys,
+      "--max-turns", "1",
+      "--disallowed-tools", "Bash Edit Write Read WebSearch WebFetch",
+    ];
+    const child = spawn(CLAUDE_BIN, args, { stdio: ["pipe", "pipe", "pipe"] });
+    let out = "";
+    let err = "";
+    const killer = setTimeout(() => child.kill("SIGKILL"), 180000);
+    child.stdout.on("data", (d) => (out += d));
+    child.stderr.on("data", (d) => (err += d));
+    child.on("error", (e) => {
+      clearTimeout(killer);
+      reject(e);
+    });
+    child.on("close", (code) => {
+      clearTimeout(killer);
+      if (code !== 0) return reject(new Error(`claude CLI exited ${code}: ${err.slice(0, 300)}`));
+      let text = out;
+      try {
+        const env = JSON.parse(out);
+        if (env && typeof env === "object") {
+          if (env.is_error) return reject(new Error(String(env.result || "claude CLI error")));
+          if (typeof env.result === "string") text = env.result;
+        }
+      } catch {
+        /* not a JSON envelope — use raw stdout */
+      }
+      resolve({ mode: "cli", text });
+    });
+    child.stdin.write(userContent);
+    child.stdin.end();
+  });
+}
+
+/** Dispatch to the active provider (API key SDK or local CLI). */
+async function generate(userContent) {
+  const p = provider();
+  if (p === "api") return callClaude(userContent);
+  if (p === "cli") return callCli(userContent);
+  throw Object.assign(new Error("no provider"), { noProvider: true });
+}
 
 function textFrom(message) {
   const block = message.content.find((b) => b.type === "text");
@@ -138,10 +216,10 @@ app.post("/api/nl", async (req, res) => {
   if (!prompt || typeof prompt !== "string") {
     return res.status(400).json({ ops: [], error: "프롬프트가 비어 있습니다." });
   }
-  if (!client) {
+  if (provider() === "none") {
     return res.json({
       ops: [],
-      error: "Claude API 키가 설정되지 않았습니다. .env에 ANTHROPIC_API_KEY를 넣고 서버를 재시작하세요.",
+      error: "Claude 백엔드가 없습니다. 로컬 Claude CLI 로그인(claude) 또는 .env의 ANTHROPIC_API_KEY가 필요합니다.",
     });
   }
 
@@ -149,7 +227,7 @@ app.post("/api/nl", async (req, res) => {
     `현재 도면 컨텍스트(JSON):\n${JSON.stringify(context ?? {}, null, 0)}\n\n사용자 요청:\n${prompt}`;
 
   try {
-    const { mode, text } = await callClaude(userContent);
+    const { mode, text } = await generate(userContent);
     if (!text) return res.json({ ops: [], error: "모델이 빈 응답을 반환했습니다." });
     let parsed;
     try {
@@ -168,6 +246,6 @@ app.post("/api/nl", async (req, res) => {
 
 app.listen(PORT, () => {
   console.log(
-    `AiCAD API on :${PORT}  model=${MODEL}  configured=${!!client}  baseURL=${BASE_URL ?? "default"}`,
+    `AiCAD API on :${PORT}  model=${MODEL}  provider=${provider()}  cli=${CLI_VERSION ?? "none"}  baseURL=${BASE_URL ?? "default"}`,
   );
 });
