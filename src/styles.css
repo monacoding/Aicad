@@ -1,0 +1,310 @@
+:root {
+  --bg: #16161c;
+  --panel: #20202a;
+  --panel-2: #2a2a36;
+  --border: #34343f;
+  --text: #e6e6ec;
+  --muted: #9a9aa8;
+  --accent: #4da3ff;
+  --accent-2: #ffcf33;
+  --danger: #ff5c5c;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 13px;
+  overflow: hidden;
+}
+
+.app {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  grid-template-columns: 56px 1fr 260px;
+  grid-template-areas:
+    "top top top"
+    "tools canvas side"
+    "cmd cmd cmd";
+  height: 100%;
+}
+
+.topbar {
+  grid-area: top;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+.topbar .brand {
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: var(--accent);
+  margin-right: 8px;
+}
+.topbar .brand small {
+  color: var(--muted);
+  font-weight: 400;
+  margin-left: 6px;
+}
+.spacer {
+  flex: 1;
+}
+
+button.btn {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 10px;
+  cursor: pointer;
+  font-size: 12px;
+}
+button.btn:hover {
+  border-color: var(--accent);
+}
+button.btn.active {
+  background: var(--accent);
+  color: #07223f;
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+.toolbar {
+  grid-area: tools;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 4px;
+  overflow-y: auto;
+}
+.toolbar .tool {
+  width: 44px;
+  height: 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 9px;
+}
+.toolbar .tool svg {
+  width: 18px;
+  height: 18px;
+}
+.toolbar .tool:hover {
+  background: var(--panel-2);
+}
+.toolbar .tool.active {
+  background: var(--accent);
+  color: #07223f;
+}
+.toolbar .sep {
+  width: 36px;
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
+}
+
+.canvas-wrap {
+  grid-area: canvas;
+  position: relative;
+  overflow: hidden;
+}
+canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: crosshair;
+}
+.hud {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  background: rgba(0, 0, 0, 0.5);
+  padding: 4px 8px;
+  border-radius: 5px;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  color: var(--accent-2);
+  pointer-events: none;
+}
+
+.side {
+  grid-area: side;
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.side section {
+  border-bottom: 1px solid var(--border);
+  padding: 8px 10px;
+}
+.side h3 {
+  margin: 0 0 8px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--muted);
+}
+
+.nl textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 56px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-family: inherit;
+  font-size: 13px;
+}
+.nl .row {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+  align-items: center;
+}
+.nl .examples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+.nl .examples span {
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+.nl .examples span:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+.nl .status {
+  margin-top: 6px;
+  font-size: 12px;
+  min-height: 16px;
+}
+.nl .status.err {
+  color: var(--danger);
+}
+.nl .status.ok {
+  color: var(--accent-2);
+}
+
+.layers {
+  flex: 1;
+  overflow-y: auto;
+}
+.layer-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+}
+.layer-row .swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+}
+.layer-row .name {
+  flex: 1;
+  cursor: pointer;
+}
+.layer-row.current .name {
+  color: var(--accent);
+  font-weight: 600;
+}
+.layer-row .vis {
+  cursor: pointer;
+  color: var(--muted);
+  background: none;
+  border: none;
+  font-size: 13px;
+}
+
+.cmdbar {
+  grid-area: cmd;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+}
+.cmdbar .log {
+  max-height: 90px;
+  overflow-y: auto;
+  padding: 4px 10px;
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--muted);
+}
+.cmdbar .log div:last-child {
+  color: var(--text);
+}
+.cmdbar .input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--border);
+}
+.cmdbar .prompt {
+  color: var(--accent);
+  font-family: ui-monospace, monospace;
+}
+.cmdbar input {
+  flex: 1;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-family: ui-monospace, monospace;
+  font-size: 13px;
+}
+.statusbar {
+  display: flex;
+  gap: 14px;
+  padding: 3px 10px;
+  font-size: 11px;
+  color: var(--muted);
+  border-top: 1px solid var(--border);
+  font-family: ui-monospace, monospace;
+}
+.statusbar b {
+  color: var(--text);
+  font-weight: 600;
+}
+.statusbar .pill {
+  cursor: pointer;
+}
+.statusbar .pill.on {
+  color: var(--accent-2);
+}
